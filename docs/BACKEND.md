@@ -78,7 +78,7 @@ HRRR covers CONUS only, so it always works for Boca Raton. AIFS is global and ve
 
 ## Verdict tier naming
 
-The three verdict tiers are exported from `lib/forecast.js` as the `VERDICT` enum and used in both `tomorrow.verdict` and every `tennis_windows[].verdict`:
+The three verdict tiers are exported from `lib/forecast.js` as the `VERDICT` enum and used in `today.verdict`, `tomorrow.verdict`, and every `tennis_windows[].verdict` (with `today.verdict === null` on a concluded today):
 
 | Tier             | Previous name | Meaning                                                                          |
 | ---------------- | ------------- | -------------------------------------------------------------------------------- |

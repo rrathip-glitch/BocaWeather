@@ -255,7 +255,7 @@ body {
   letter-spacing: 0;
   text-transform: none;
   color: rgba(255, 255, 255, 0.45);
-  margin-top: 1px;
+  margin-top: 2px;
   transition: color 200ms ease;
 }
 .day-toggle-btn.is-active .day-toggle-sub { color: rgba(255, 255, 255, 0.70); }

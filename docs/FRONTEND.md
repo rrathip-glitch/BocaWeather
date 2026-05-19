@@ -22,13 +22,14 @@ The page is a single scroll. Sections render top-to-bottom into containers in `i
 
 | Section            | DOM root                       | Render function in `app.js`     | Purpose                                                                 |
 | ------------------ | ------------------------------ | ------------------------------- | ----------------------------------------------------------------------- |
-| Header + now strip | `<header>` / `#now-strip`      | `renderNowStrip(data)`          | Branding plus current temp / rain % / model agreement dot.              |
+| Header + now strip | `<header>` / `#now-strip`      | `renderNowStrip(data)`          | Branding plus current temp / rain % / model agreement dot. Always real-time (never tied to the toggle). |
 | Refresh button     | `#refresh-btn` (in header)     | `wireRefreshButton()` (boot)    | Manual refresh forcing `?refresh=1`; spinner during fetch, toast on done. |
-| Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Tiered GO / CAUTION / HEAVY CAUTION with reason, subtitle pills, agreement chip, quick stats. |
-| Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills + BEST badge on the safest slot. |
-| Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & AIFS lines, night/disagree bands, NOW line, sunrise/sunset markers. |
+| Day toggle         | `#day-toggle` (above hero)     | `renderDayToggle(data)` / `wireDayToggle()` | Segmented Today / Tomorrow pill with sliding indicator; drives every day-aware render via `appState.selectedDay`. |
+| Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Tiered GO / CAUTION / HEAVY CAUTION with reason, subtitle pills, agreement chip, quick stats. Day-aware via `currentDay(data)`. |
+| Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills + BEST badge on the safest slot. Day-aware. |
+| Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & AIFS lines, night/disagree bands, NOW line, sunrise/sunset markers, selected-day highlight wash. |
 | Live Radar         | `#radar-map` + controls        | `initRadar()` / `renderRadar()` | Leaflet + CartoDB base, RainViewer animated radar overlay, pulsing pin. |
-| Hourly strip       | `#hourly-strip`                | `renderHourlyStrip(data)`       | Horizontally scrollable 24-hour chip strip.                             |
+| Hourly strip       | `#hourly-strip`                | `renderHourlyStrip(data)`       | Horizontally scrollable 24-hour chip strip. Chips matching the selected day get `.is-active-day`. |
 | Footer             | `#generated-info`              | `renderFooter(data)`            | "Forecast generated at HH:MM EDT · cached/fresh" + data attribution.    |
 | Error fallback     | `#error-state` (hidden)        | `showError()` / `hideError()`   | Friendly card with retry button on fetch failure.                       |
 | "How this works"   | `#how-it-works` (modal)        | `wireHowItWorks()`              | Explains dual-model methodology, verdict thresholds, radar add-on tip.  |
@@ -50,6 +51,135 @@ Model disagreement appears in **four** places, intentionally redundant:
 4. **Hourly strip chips** — amber border ring (`.is-disagree`) and a tiny "Split" indicator (inline SVG triangle + label, `.chip-split`).
 
 A reviewer who removes one of these breaks the product thesis. See [`docs/AGENT_HANDOFF.md` § 4 invariant 5](./AGENT_HANDOFF.md#4-critical-invariants--do-not-break).
+
+### App state
+
+The frontend keeps a tiny top-level state object so the Today / Tomorrow toggle can re-render the page without a network round-trip and without losing the user's selection on auto-refresh:
+
+```js
+const appState = {
+  selectedDay: 'tomorrow', // 'today' | 'tomorrow'
+  lastData: null,          // most recent /api/forecast payload
+};
+
+function currentDay(data) {
+  return data?.[appState.selectedDay];
+}
+```
+
+- `selectedDay` defaults to `'tomorrow'` — the original product focus, kept for first-load familiarity.
+- `lastData` is set inside `loadForecast()` immediately after a successful fetch. Every toggle click re-runs `renderAll(appState.lastData)`, so the switch is instant and never refetches.
+- `currentDay(data)` is the day-aware accessor every render function consumes. Renderers that should follow the toggle (`renderHero`, `renderTennisWindows`, the chart's highlight wash, the hourly strip's `.is-active-day` ring) read `currentDay(data)`. Renderers that should always show real-time conditions (`renderNowStrip`) deliberately do **not** — they read `data.today || data.tomorrow` for the live model_agreement.
+- The toggle persists across auto-refresh and `visibilitychange` re-fetches. `setSelectedDay(day)` is the only mutator, and it only writes when the value actually changes.
+
+### Day toggle (Today | Tomorrow)
+
+Segmented-control "pill" sitting between the header and the hero, centered, with `mb-8 sm:mb-10` to give the hero room to breathe.
+
+#### Anatomy
+
+```
+.day-toggle-wrap          ← flex centering container, full width
+  .day-toggle             ← glass pill: rgba(255,255,255,0.05), border, backdrop-blur, p-1
+                            role="tablist", aria-label="Forecast day"
+                            min-width 280px mobile / 360px desktop
+    .day-toggle-indicator ← absolutely positioned, 50%-1-padding wide, sliding pill
+                            data-day attribute drives transform + gradient
+    .day-toggle-btn       ← role="tab", flex-1, transparent background
+      .day-toggle-label   ← "TODAY" / "TOMORROW", uppercase, tracking-widest
+      .day-toggle-sub     ← "Mon, May 19" — Intl.DateTimeFormat abbreviated, text-white/45
+    .day-toggle-btn       ← second tab, same structure
+```
+
+#### Sliding indicator
+
+A single absolutely-positioned `<span>` paints the active background; the buttons themselves stay transparent. Position is driven by `data-day`:
+
+| `data-day` value | Transform        | Gradient                                                                 | Outer shadow |
+| ---------------- | ---------------- | ------------------------------------------------------------------------ | ------------ |
+| `today`          | `translateX(0)`  | `linear-gradient(135deg, rgba(251,191,36,0.18), rgba(248,113,113,0.18))` | mint amber `0 6px 22px rgba(251,191,36,0.18)` |
+| `tomorrow`       | `translateX(100%)` | `linear-gradient(135deg, rgba(74,222,128,0.18), rgba(20,160,210,0.22))` | mint green `0 6px 22px rgba(74,222,128,0.18)` |
+
+Animation: `transform 220ms cubic-bezier(0.22, 1, 0.36, 1)` — a premium ease-out curve, no bounce. The gradient and shadow crossfade alongside on `320ms ease` so the color shift never feels stepped.
+
+#### `is-done` state
+
+When `today.is_concluded === true`, the today button gets `.is-done`:
+
+- Label text gets a subtle horizontal line-through (`text-decoration-color: rgba(255,255,255,0.35)`).
+- Opacity drops to 0.6 (0.8 on hover).
+- Subtitle replaces the abbreviated date with the literal string `"Day complete"`.
+- `title` attribute reads `"Tennis day is over"`.
+- **Clicking is still allowed.** Switching to a concluded day renders the special "COMPLETE" hero (see § Concluded today UI).
+
+#### Behavior
+
+1. Click → `setSelectedDay(day)`:
+   - Bails if the value is unchanged (no churn on accidental re-clicks).
+   - Adds `.hero-fade` to `#hero` and forces a reflow so the 200 ms opacity crossfade restarts cleanly.
+   - Re-runs `renderAll(appState.lastData)` — no network call.
+   - On `requestAnimationFrame`, calls `scrollStripToSelectedDay()` to bring the hourly strip's first matching chip into view (only if the strip is roughly in viewport; offscreen-skip prevents surprise jumps).
+2. The sliding indicator's transform animates between positions; the body never reflows because the indicator is `position: absolute` inside the toggle.
+3. `renderDayToggle()` runs after every fetch to refresh the subtitle dates and sync ARIA — it does **not** reset `selectedDay`, so the user's choice survives auto-refresh.
+
+#### Accessibility
+
+- Container: `role="tablist"` with `aria-label="Forecast day"`.
+- Each button: `role="tab"`, `aria-controls="hero"`, `aria-selected="true|false"`, `tabindex` flipped (0 / -1) so only the active tab is in the tab order — standard tablist roving-focus pattern.
+- **Keyboard.** Left arrow / Home → Today. Right arrow / End → Tomorrow. Both call `setSelectedDay()` and move focus to the destination button.
+- **Focus ring.** `focus-visible` shows `box-shadow: 0 0 0 2px rgba(255,255,255,0.40)` on the button, matching the page's premium ring style.
+- **Reduced motion.** `prefers-reduced-motion: reduce` disables the indicator's transform transition (gradient/shadow crossfade keeps a brief 320 ms ease so the active color is still legible).
+
+### Day-aware renders
+
+Every renderer that consumes a single day's forecast reads from `currentDay(data)` so the toggle drives the entire page in lockstep. Concretely:
+
+| Render                  | Source                              | Notes                                                                  |
+| ----------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
+| `renderHero(data)`      | `currentDay(data) \|\| data.tomorrow` | Verdict word, glow, date, reason, pills, agreement chip, stats — all day-scoped. Falls back to tomorrow if the selected day is absent (defensive against older payloads). |
+| `renderTennisWindows`   | `currentDay(data).tennis_windows`   | **Breaking change:** `tennis_windows` is now per-day, not top-level. The section subheading flips between "Today · Eastern Time" and "Tomorrow · Eastern Time". |
+| `renderHourlyChart`     | `currentDay(data).date`             | Drives the `dayHighlight` plugin's selected-day wash; chart still shows the full 36-hour range. |
+| `renderHourlyStrip`     | `currentDay(data).date`             | Chips whose local YYYY-MM-DD matches get `.is-active-day`; `scrollStripToSelectedDay()` brings the first matching chip into view on toggle. |
+| `renderNowStrip(data)`  | `data.today \|\| data.tomorrow`     | **Always real-time** — does not consume the toggle. Live model_agreement comes from the in-flight day (`today`) with `tomorrow` as fallback if the backend hasn't shipped today yet. |
+| `renderFooter`          | `data.generated_at`, `data.cached`  | Day-agnostic — same regardless of toggle. |
+
+The renderers always call `renderDayToggle(data)` first inside `renderAll(data)` so the toggle's subtitles and ARIA reflect the freshest payload before the other sections paint.
+
+### Concluded today UI
+
+When `appState.selectedDay === 'today'` and `currentDay(data).is_concluded === true`, the hero re-skins itself to communicate that the tennis day is over without leaving the page blank:
+
+- **Verdict word** swaps from the loud GO / CAUTION / HEAVY CAUTION to a calm `"COMPLETE"`:
+  - Class: `.verdict-complete` (slate `rgba(240,246,252,0.70)`, font-semibold, no text-shadow).
+  - Size: ~3.25 rem mobile / ~4.5 rem desktop — roughly text-6xl/text-7xl, intentionally smaller than the normal verdict's text-9xl.
+  - Hero glow is hidden (`.hero-glow` opacity forced to 0, no tier class).
+- **Reason** still renders from `today.verdict_reason` (typically `"Tennis day complete — check Tomorrow for the next forecast."`).
+- **Subtitle pills** are skipped entirely — every pill field (`first_rain_hour_local`, `best_window`, `wind_max_mph`, `confidence`) is null on a concluded day, and a row of empty placeholders would feel broken.
+- **Agreement chip slot** is repurposed for a "See Tomorrow's forecast" CTA (`.day-cta`) — a small palm-green chip with a right-arrow glyph. Clicking calls `setSelectedDay('tomorrow')` so the user has an obvious next action.
+- **Stats row** drops the Peak rain tile (null on concluded days) and keeps Wind / High / Low whichever survive on the day object — `renderHeroStats(t, { isConcludedToday: true })` handles the filtering.
+- **Tennis windows** still render all four cards, but every card gets `.is-past` (opacity 0.6, desaturated, no hover lift) and the BEST badge is suppressed (no "best" on a day that's over).
+- **Day-toggle button** for Today simultaneously carries `.is-done` (line-through label, "Day complete" subtitle, dimmed but still clickable — see § Day toggle).
+
+The same `is-past` class is applied to individual windows whose `is_past: true` flag is set within an in-progress today, so the visual treatment is consistent: a finished window looks finished regardless of why.
+
+### Chart day-highlight band
+
+The hourly chart shows the full 36-hour horizon regardless of toggle state, but adds a subtle vertical wash behind the hours that belong to the selected day. Implementation: the `dayHighlight` Chart.js plugin, declared inside `renderHourlyChart()`:
+
+```js
+const dayHighlightPlugin = {
+  id: 'dayHighlight',
+  beforeDatasetsDraw(chart) {
+    // ...paints rgba(255,255,255,0.04) across every hour whose local
+    // YYYY-MM-DD === currentDay(data).date
+  }
+};
+```
+
+- Runs in `beforeDatasetsDraw` so the wash sits **under** the bars, lines, night shading, and disagreement bands — it's a background hint, never a foreground element.
+- The selected day is captured in a `selectedDate` closure variable at the top of `renderHourlyChart` (`currentDay(data)?.date || null`). When the user toggles, `renderAll` re-runs `renderHourlyChart`, which rebuilds the plugin closure against the new selected date, and the chart re-paints — no separate animation, just a fresh render.
+- Fill color is intentionally near-transparent (`rgba(255,255,255,0.04)`) so it reads as "this is your day" without competing with the data layers. On the active day's hours you'll see a slight brightening of the background between the night-shade bands.
+- Listed first in the chart's `plugins:` array (`[dayHighlightPlugin, nightPlugin, disagreePlugin, sunMarkersPlugin, nowPlugin]`) so subsequent plugins paint on top of it.
 
 ### Refresh button
 
@@ -80,12 +210,12 @@ Wednesday, May 20, 2026   ← text-xl → text-2xl → text-3xl, tracking-wide, 
 GO                        ← the existing massive verdict, unchanged
 ```
 
-The exact format `Wednesday, May 20, 2026` comes from `fmtDateFull(parseLocalDate(t.date))` in `app.js`:
+The exact format `Wednesday, May 20, 2026` comes from `fmtDateFull(parseLocalDate(t.date))` in `app.js` where `t = currentDay(data)`, so the date is **day-aware** — it tracks the Today / Tomorrow toggle and re-renders to whichever day the user picked.
 
 - `Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })`.
-- **Noon-local parse trick.** Backend sends `tomorrow.date` as `"YYYY-MM-DD"`. `new Date("2026-05-20")` interprets that as **UTC midnight**, so any negative-offset viewer (the entire Americas) drifts one calendar day backward — May 20 renders as May 19. `parseLocalDate(ymd)` builds `new Date("${ymd}T12:00:00")` instead: an unambiguous noon **local** wall-clock that lands inside May 20 in every timezone on Earth. The subsequent `Intl.DateTimeFormat` then re-projects safely into Eastern Time.
+- **Noon-local parse trick.** Backend sends `today.date` / `tomorrow.date` as `"YYYY-MM-DD"`. `new Date("2026-05-20")` interprets that as **UTC midnight**, so any negative-offset viewer (the entire Americas) drifts one calendar day backward — May 20 renders as May 19. `parseLocalDate(ymd)` builds `new Date("${ymd}T12:00:00")` instead: an unambiguous noon **local** wall-clock that lands inside the intended calendar day in every timezone on Earth. The subsequent `Intl.DateTimeFormat` then re-projects safely into Eastern Time.
 
-The label-above-value pattern is hand-rolled in `index.html`; the dynamic line lives at `#hero-date`.
+The label-above-value pattern is hand-rolled in `index.html`; the dynamic line lives at `#hero-date`. The same abbreviated format (`fmtDateAbbr`, e.g. `Mon, May 19`) drives the day-toggle's subtitles.
 
 ### Verdict tier visual hierarchy
 
@@ -115,31 +245,35 @@ The same tier classes drive the tennis-window card accents (`.window-card.acc-{t
 
 ### Hero subtitle pills
 
-Below `#verdict-reason` is `#hero-pills`, a horizontal row of glass micro-pills (`.hero-pill`) that wrap on mobile. Each pill is conditionally rendered by `renderHeroPills(t)` — when the backend field is `null` or missing, the pill is skipped silently so the row never holds empty placeholders post-render. Render order (left → right):
+Below `#verdict-reason` is `#hero-pills`, a horizontal row of glass micro-pills (`.hero-pill`) that wrap on mobile. Each pill is conditionally rendered by `renderHeroPills(t)` where `t = currentDay(data)` — when the backend field is `null` or missing, the pill is skipped silently so the row never holds empty placeholders post-render. Render order (left → right):
 
 | Pill         | Renders when                       | Example string                       | Tone (CSS `data-tone`)             |
 | ------------ | ---------------------------------- | ------------------------------------ | ---------------------------------- |
-| First rain   | `tomorrow.first_rain_hour_local` is non-null | `Rain begins ~3:00 PM`               | `amber`                            |
-| Best window  | `tomorrow.best_window` is non-null | `Best window: Morning · 12%`         | `green` if best.verdict is GO, `amber` if LIGHT_CAUTION, `coral` if HEAVY_CAUTION |
-| Wind         | `tomorrow.wind_max_mph` is non-null | `Wind: 12 mph peak`                  | `slate`                            |
+| First rain   | `t.first_rain_hour_local` is non-null | `Rain begins ~3:00 PM`               | `amber`                            |
+| Best window  | `t.best_window` is non-null        | `Best window: Morning · 12%`         | `green` if best.verdict is GO, `amber` if LIGHT_CAUTION, `coral` if HEAVY_CAUTION |
+| Wind         | `t.wind_max_mph` is non-null       | `Wind: 12 mph peak`                  | `slate`                            |
 | Confidence   | always                              | `Forecast confidence: High`          | `green` (HIGH), `amber` (MODERATE), `coral` (LOW) |
 
-Each pill exposes the relevant explanatory string via the native `title` attribute so hover/long-press reveals the context (the confidence pill specifically surfaces `tomorrow.confidence_note`).
+Each pill exposes the relevant explanatory string via the native `title` attribute so hover/long-press reveals the context (the confidence pill specifically surfaces `t.confidence_note`).
 
 Skeleton state is rendered statically in `index.html` as four `.hero-pill.skeleton` shimmers — the same pill shape, no content. The first paint of `renderHeroPills` replaces them with real pills, each animated in via `.anim-fade-up` with a 60 ms-per-pill stagger.
 
+When `today.is_concluded === true` and the user is viewing today, the entire row is wiped (`host.innerHTML = ''`) — every backend pill field is null on a concluded day and a row of empty placeholders would feel broken. See § Concluded today UI for the full re-skin.
+
 ### BEST badge
 
-The tennis-window card whose `label` matches `tomorrow.best_window.label` gets a `.best-badge` overlay in its top-right corner — a tiny palm-green pill with an inline check SVG. If `best_window` is `null`, no badge renders. Style is subtle by design: low-opacity fill (`rgba(74, 222, 128, 0.10)`), low-contrast border, small uppercase letter-spacing, soft outer glow. It signals "this is the safer slot" without competing with the verdict pill on the same card.
+The tennis-window card whose `label` matches `currentDay(data).best_window.label` gets a `.best-badge` overlay in its top-right corner — a tiny palm-green pill with an inline check SVG. If `best_window` is `null`, no badge renders. Style is subtle by design: low-opacity fill (`rgba(74, 222, 128, 0.10)`), low-contrast border, small uppercase letter-spacing, soft outer glow. It signals "this is the safer slot" without competing with the verdict pill on the same card. The badge is **also** suppressed on every card when viewing a concluded today — see § Concluded today UI.
 
 ### Hero stats row
 
-The four-stat grid (`#hero-stats`) renders, in order:
+The four-stat grid (`#hero-stats`) is day-aware via `currentDay(data)` — it pulls from whichever day the toggle has selected. In normal mode it renders, in order:
 
-1. **Peak rain** — `Math.round(tomorrow.rain_probability_max)%` with a tiny colored dot (`rainTint`).
-2. **Wind (peak)** — `Math.round(tomorrow.wind_max_mph) mph`, or `—` when unavailable. Replaced the prior "Mean rain" stat, because mean is already implied by the consensus bar in the chart, and wind directly affects tennis playability (10+ mph kills the lob).
-3. **High** — `Math.round(tomorrow.temperature_high_f)°`.
-4. **Low** — `Math.round(tomorrow.temperature_low_f)°`.
+1. **Peak rain** — `Math.round(t.rain_probability_max)%` with a tiny colored dot (`rainTint`).
+2. **Wind (peak)** — `Math.round(t.wind_max_mph) mph`, or `—` when unavailable. Replaced the prior "Mean rain" stat, because mean is already implied by the consensus bar in the chart, and wind directly affects tennis playability (10+ mph kills the lob).
+3. **High** — `Math.round(t.temperature_high_f)°`.
+4. **Low** — `Math.round(t.temperature_low_f)°`.
+
+When `appState.selectedDay === 'today'` and `today.is_concluded === true`, `renderHeroStats(t, { isConcludedToday: true })` drops the Peak rain tile (the backend nulls it out on a concluded day) and renders only Wind / High / Low — the row collapses to three tiles rather than rendering an awkward `0%` placeholder.
 
 ### Chart "NOW" line
 
@@ -287,15 +421,18 @@ The page is a stack of `<section>` elements inside `<main>`. To add one, e.g. "7
 2. **Render function.** In `public/app.js`, add a `renderOutlook(data)` function near the other renderers, then call it from `renderAll()`:
    ```js
    function renderAll(data) {
+     renderDayToggle(data);
      renderHero(data);
      renderNowStrip(data);
      renderTennisWindows(data);
      renderHourlyChart(data);
+     renderRadar(data);
      renderHourlyStrip(data);
      renderOutlook(data);   // ← new
      renderFooter(data);
    }
    ```
+   If the new section is day-aware (should follow the Today / Tomorrow toggle), read from `currentDay(data)` rather than `data.tomorrow` directly so the toggle drives it automatically.
    Follow the existing pattern: pull values off `data`, build innerHTML via template literals, no external libraries.
 
 3. **Skeletons.** If the new section is above the fold, render a skeleton placeholder in the HTML so it doesn't pop in. Use the `.skeleton` class on a fixed-height div.
@@ -318,8 +455,56 @@ The frontend was developed against this representative payload. It matches the c
   },
   "generated_at": "2026-05-19T13:42:11.000Z",
   "cached": true,
+  "today": {
+    "date": "2026-05-19",
+    "label": "today",
+    "is_concluded": false,
+    "tennis_hours_remaining": 6,
+    "verdict": "GO",
+    "verdict_reason": "Clear afternoon, light breeze. Play through evening.",
+    "rain_probability_max": 18,
+    "rain_probability_mean": 6,
+    "precipitation_sum_in": 0.00,
+    "temperature_high_f": 82,
+    "temperature_low_f": 70,
+    "sunrise": "2026-05-19T10:32:00Z",
+    "sunset": "2026-05-20T00:07:00Z",
+    "model_agreement": "AGREE",
+    "uncertainty_note": null,
+    "wind_max_mph": 9,
+    "wind_mean_mph": 6,
+    "first_rain_time": null,
+    "first_rain_hour_local": null,
+    "best_window": {
+      "label": "Afternoon",
+      "max_rain_prob": 12,
+      "verdict": "GO"
+    },
+    "confidence": "HIGH",
+    "confidence_note": "Both models agree; nothing in the radar.",
+    "tennis_windows": [
+      {
+        "label": "Morning", "start": "2026-05-19T10:00:00Z", "end": "2026-05-19T14:00:00Z",
+        "verdict": "GO", "max_rain_prob": 8, "reason": "Clear sky, light wind.", "is_past": true
+      },
+      {
+        "label": "Midday", "start": "2026-05-19T14:00:00Z", "end": "2026-05-19T18:00:00Z",
+        "verdict": "GO", "max_rain_prob": 12, "reason": "Calm conditions hold.", "is_past": false
+      },
+      {
+        "label": "Afternoon", "start": "2026-05-19T18:00:00Z", "end": "2026-05-19T22:00:00Z",
+        "verdict": "GO", "max_rain_prob": 18, "reason": "Cumulus building but staying dry.", "is_past": false
+      },
+      {
+        "label": "Evening", "start": "2026-05-19T22:00:00Z", "end": "2026-05-20T01:00:00Z",
+        "verdict": "GO", "max_rain_prob": 10, "reason": "Clear evening.", "is_past": false
+      }
+    ]
+  },
   "tomorrow": {
     "date": "2026-05-20",
+    "label": "tomorrow",
+    "is_concluded": false,
     "verdict": "LIGHT_CAUTION",
     "verdict_reason": "Models disagree on afternoon convection (HRRR peaks at 68%, AIFS stays under 25%).",
     "rain_probability_max": 68,
@@ -341,7 +526,25 @@ The frontend was developed against this representative payload. It matches the c
       "verdict": "GO"
     },
     "confidence": "MODERATE",
-    "confidence_note": "Disagreement on the afternoon line lowers confidence to moderate; morning is firm."
+    "confidence_note": "Disagreement on the afternoon line lowers confidence to moderate; morning is firm.",
+    "tennis_windows": [
+      {
+        "label": "Morning", "start": "2026-05-20T10:00:00Z", "end": "2026-05-20T14:00:00Z",
+        "verdict": "GO", "max_rain_prob": 12, "reason": "Clear sky, light onshore breeze.", "is_past": false
+      },
+      {
+        "label": "Midday", "start": "2026-05-20T14:00:00Z", "end": "2026-05-20T18:00:00Z",
+        "verdict": "GO", "max_rain_prob": 28, "reason": "Cumulus building, no rain expected yet.", "is_past": false
+      },
+      {
+        "label": "Afternoon", "start": "2026-05-20T18:00:00Z", "end": "2026-05-20T22:00:00Z",
+        "verdict": "HEAVY_CAUTION", "max_rain_prob": 68, "reason": "HRRR fires a line of storms 3–6 PM; AIFS disagrees.", "is_past": false
+      },
+      {
+        "label": "Evening", "start": "2026-05-20T22:00:00Z", "end": "2026-05-21T01:00:00Z",
+        "verdict": "LIGHT_CAUTION", "max_rain_prob": 42, "reason": "Storms decaying but residual showers possible.", "is_past": false
+      }
+    ]
   },
   "hourly": [
     {
@@ -377,43 +580,11 @@ The frontend was developed against this representative payload. It matches the c
   "models": {
     "hrrr": { "available": true, "id": "gfs_hrrr" },
     "aifs": { "available": true, "id": "ecmwf_aifs025" }
-  },
-  "tennis_windows": [
-    {
-      "label": "Morning",
-      "start": "2026-05-20T10:00:00Z",
-      "end": "2026-05-20T14:00:00Z",
-      "verdict": "GO",
-      "max_rain_prob": 12,
-      "reason": "Clear sky, light onshore breeze."
-    },
-    {
-      "label": "Midday",
-      "start": "2026-05-20T14:00:00Z",
-      "end": "2026-05-20T18:00:00Z",
-      "verdict": "GO",
-      "max_rain_prob": 28,
-      "reason": "Cumulus building, no rain expected yet."
-    },
-    {
-      "label": "Afternoon",
-      "start": "2026-05-20T18:00:00Z",
-      "end": "2026-05-20T22:00:00Z",
-      "verdict": "HEAVY_CAUTION",
-      "max_rain_prob": 68,
-      "reason": "HRRR fires a line of storms 3–6 PM; AIFS disagrees."
-    },
-    {
-      "label": "Evening",
-      "start": "2026-05-20T22:00:00Z",
-      "end": "2026-05-21T01:00:00Z",
-      "verdict": "LIGHT_CAUTION",
-      "max_rain_prob": 42,
-      "reason": "Storms decaying but residual showers possible."
-    }
-  ]
+  }
 }
 ```
+
+> **Breaking change (today/tomorrow split):** `tennis_windows` used to live at the top level of the payload and reflect tomorrow only. It now lives **inside each day object** (`today.tennis_windows`, `tomorrow.tennis_windows`) so the toggle can show either day's slots. Any code that reads `data.tennis_windows` must migrate to `currentDay(data).tennis_windows`. Each window additionally exposes `is_past: boolean` for muting elapsed slots within an in-progress today.
 
 ### Edge cases the frontend handles
 
@@ -427,8 +598,12 @@ The frontend was developed against this representative payload. It matches the c
 - `confidence` always renders; if the value is missing or unrecognized, it falls back to "Unknown" with the neutral amber tone.
 - `verdict` legacy values (`CAUTION`, `NO_GO`, `NO-GO`) are mapped forward to `light` / `heavy` so a stale backend never breaks the render.
 - `tennis_windows[].verdict` legacy values are mapped the same way — both the pill color and the BEST-badge match key go through `verdictClass()`.
+- `today.is_concluded: true` → hero swaps to the calm "COMPLETE" view (slate `.verdict-complete`, no glow, no pills, no agreement chip); the agreement-chip slot fills with a "See Tomorrow's forecast" CTA; the stats row drops the (null) rain tile; every tennis-window card gets `.is-past` (opacity 0.6, no hover lift) and the BEST badge is suppressed; the day-toggle's Today button gets `.is-done` (line-through label, "Day complete" subtitle, dimmed but still clickable).
+- `today` missing (e.g. payload from an older backend) → `currentDay(data)` returns `undefined`; `renderHero` falls back to `data.tomorrow` so the page never goes blank, and the day-toggle's Today subtitle renders `"—"`.
+- `tennis_windows[].is_past: true` → that single window card gets `.is-past` styling within an otherwise-active day (e.g. midday today after lunch).
+- `selectedDay` is preserved across auto-refresh and `visibilitychange` re-fetches — the user's manual choice is never overwritten by a network round-trip.
 - Fetch failure on first load → `#error-state` shows with a retry button. Fetch failure after a successful load → silent, last-good data retained.
-- `prefers-reduced-motion: reduce` → background gradient animation, shimmer, and entrance animations all disabled (handled in `styles.css`).
+- `prefers-reduced-motion: reduce` → background gradient animation, shimmer, and entrance animations all disabled (handled in `styles.css`). The day-toggle's sliding indicator drops its `transform` transition but keeps a brief gradient/shadow crossfade so the active-day color is still legible.
 
 ## 5. Verifying without the backend
 

@@ -33,9 +33,21 @@ curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '{today: .today, tom
 
 `rain_probability_max` and `rain_probability_mean` on both `today` and `tomorrow` are computed over tennis hours only (06:00–21:00 local), not all 24 hours of the day. For tomorrow this is always the full 16-hour set; for today it is just the hours still ahead — see [Today's partial day semantics](#todays-partial-day-semantics). See [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) for the rationale. `precipitation_sum_in` continues to reflect the full-day Open-Meteo daily total on both days.
 
+### Today's partial day semantics
+
+`today` is sliced relative to the current local hour in `America/New_York`. The filter that decides which hourly entries feed into `today.verdict` and the tennis-hours-scoped stats is:
+
+- **Before 06:00 local:** include every today hour in `[06, 21]` (the full 16-hour tennis day is still ahead). `today.tennis_hours_remaining === 16`.
+- **Between 06:00 and 20:59 local:** include today hours in `[currentHour, 21]`. The current hour is included (we floor to the start of the hour, not the next hour). At 14:32, this is hours 14 through 21 — eight tennis hours.
+- **At or after 21:00 local:** today is **concluded**. `today.is_concluded === true`, every numeric/string forecast field is `null` (`verdict`, `rain_probability_max`, `wind_max_mph`, `first_rain_time`, `best_window`, `confidence`, …), and every entry in `today.tennis_windows` has `is_past: true`. Daily metadata that does not depend on remaining hours — `precipitation_sum_in`, `temperature_high_f`, `temperature_low_f`, `sunrise`, `sunset` — stays populated. `today.tennis_hours_remaining === 0`.
+
+`today.tennis_windows[*].is_past` is `true` whenever a window's `endHour <= currentHour`, so an earlier-in-the-day window with great conditions is still visible (with its original verdict) but will not be picked as `today.best_window`. `today.best_window` restricts to non-past windows; if every remaining window is `HEAVY_CAUTION` or every window has already passed, it is `null`.
+
+Tomorrow is never affected by this filter: `tomorrow.tennis_windows[*].is_past` is always `false`, `tomorrow.is_concluded` is always `false`, and there is no `tomorrow.tennis_hours_remaining` field.
+
 ### Verdict tier semantics
 
-Both `tomorrow.verdict` and each `tennis_windows[].verdict` use the same three-value enum:
+`today.verdict`, `tomorrow.verdict`, and each `tennis_windows[].verdict` use the same three-value enum (with `today.verdict === null` when today is concluded):
 
 | Tier             | Plain-language meaning                                                                                                                 |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,8 +69,72 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
   },
   "generated_at": "2026-05-19T13:42:11.000Z",
   "cached": true,
+  "today": {
+    "date": "2026-05-19",
+    "label": "today",
+    "is_concluded": false,
+    "tennis_hours_remaining": 8,
+    "verdict": "GO",
+    "verdict_reason": "Looks good: peak 18% rain chance during tennis hours.",
+    "rain_probability_max": 18,
+    "rain_probability_mean": 10,
+    "precipitation_sum_in": 0.02,
+    "temperature_high_f": 83,
+    "temperature_low_f": 71,
+    "sunrise": "2026-05-19T06:31",
+    "sunset": "2026-05-19T19:59",
+    "model_agreement": "AGREE",
+    "uncertainty_note": null,
+    "wind_max_mph": 9,
+    "wind_mean_mph": 6,
+    "first_rain_time": null,
+    "first_rain_hour_local": null,
+    "best_window": { "label": "Evening", "max_rain_prob": 8, "verdict": "GO" },
+    "confidence": "HIGH",
+    "confidence_note": "Both models agree within 3 pts on average.",
+    "tennis_windows": [
+      {
+        "label": "Morning",
+        "start": "2026-05-19T06:00",
+        "end": "2026-05-19T09:00",
+        "verdict": "GO",
+        "max_rain_prob": 5,
+        "reason": "Clear: peak 5% rain chance.",
+        "is_past": true
+      },
+      {
+        "label": "Midday",
+        "start": "2026-05-19T10:00",
+        "end": "2026-05-19T13:00",
+        "verdict": "GO",
+        "max_rain_prob": 12,
+        "reason": "Clear: peak 12% rain chance.",
+        "is_past": true
+      },
+      {
+        "label": "Afternoon",
+        "start": "2026-05-19T14:00",
+        "end": "2026-05-19T17:00",
+        "verdict": "GO",
+        "max_rain_prob": 18,
+        "reason": "Clear: peak 18% rain chance.",
+        "is_past": false
+      },
+      {
+        "label": "Evening",
+        "start": "2026-05-19T18:00",
+        "end": "2026-05-19T20:00",
+        "verdict": "GO",
+        "max_rain_prob": 8,
+        "reason": "Clear: peak 8% rain chance.",
+        "is_past": false
+      }
+    ]
+  },
   "tomorrow": {
     "date": "2026-05-20",
+    "label": "tomorrow",
+    "is_concluded": false,
     "verdict": "LIGHT_CAUTION",
     "verdict_reason": "Heads up: peak 55% rain chance during tennis hours — watch the radar.",
     "rain_probability_max": 55,
@@ -76,42 +152,46 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
     "first_rain_hour_local": "3:00 PM",
     "best_window": { "label": "Morning", "max_rain_prob": 12, "verdict": "GO" },
     "confidence": "MODERATE",
-    "confidence_note": "Models differ by 9 pts on average — moderate uncertainty."
+    "confidence_note": "Models differ by 9 pts on average — moderate uncertainty.",
+    "tennis_windows": [
+      {
+        "label": "Morning",
+        "start": "2026-05-20T06:00",
+        "end": "2026-05-20T09:00",
+        "verdict": "GO",
+        "max_rain_prob": 12,
+        "reason": "Clear: peak 12% rain chance.",
+        "is_past": false
+      },
+      {
+        "label": "Midday",
+        "start": "2026-05-20T10:00",
+        "end": "2026-05-20T13:00",
+        "verdict": "GO",
+        "max_rain_prob": 28,
+        "reason": "Clear: peak 28% rain chance.",
+        "is_past": false
+      },
+      {
+        "label": "Afternoon",
+        "start": "2026-05-20T14:00",
+        "end": "2026-05-20T17:00",
+        "verdict": "HEAVY_CAUTION",
+        "max_rain_prob": 68,
+        "reason": "Strong caution: peak 68% rain chance in this window.",
+        "is_past": false
+      },
+      {
+        "label": "Evening",
+        "start": "2026-05-20T18:00",
+        "end": "2026-05-20T20:00",
+        "verdict": "LIGHT_CAUTION",
+        "max_rain_prob": 42,
+        "reason": "Heads up: peak 42% rain chance — keep an eye on the radar.",
+        "is_past": false
+      }
+    ]
   },
-  "tennis_windows": [
-    {
-      "label": "Morning",
-      "start": "2026-05-20T06:00",
-      "end": "2026-05-20T09:00",
-      "verdict": "GO",
-      "max_rain_prob": 12,
-      "reason": "Clear: peak 12% rain chance."
-    },
-    {
-      "label": "Midday",
-      "start": "2026-05-20T10:00",
-      "end": "2026-05-20T13:00",
-      "verdict": "GO",
-      "max_rain_prob": 28,
-      "reason": "Clear: peak 28% rain chance."
-    },
-    {
-      "label": "Afternoon",
-      "start": "2026-05-20T14:00",
-      "end": "2026-05-20T17:00",
-      "verdict": "HEAVY_CAUTION",
-      "max_rain_prob": 68,
-      "reason": "Strong caution: peak 68% rain chance in this window."
-    },
-    {
-      "label": "Evening",
-      "start": "2026-05-20T18:00",
-      "end": "2026-05-20T20:00",
-      "verdict": "LIGHT_CAUTION",
-      "max_rain_prob": 42,
-      "reason": "Heads up: peak 42% rain chance — keep an eye on the radar."
-    }
-  ],
   "hourly": [
     {
       "time": "2026-05-20T15:00",
@@ -140,6 +220,8 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
 
 ### Field reference
 
+The `today` and `tomorrow` objects share the same field shape. `today` adds two fields (`tennis_hours_remaining`, plus the meaningful `is_concluded: true` code path) and may render `null` for most numeric/string forecast fields when concluded; `tomorrow` is always built fresh from the full 16-hour tennis day. The table below documents `today.*` once; every `today.*` row also applies to the equivalent `tomorrow.*` field unless noted.
+
 | Field                                   | Type                | Description                                                                                                  |
 | --------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `location.name`                         | string              | Human-readable location label.                                                                               |
@@ -148,35 +230,41 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
 | `location.timezone`                     | string              | IANA timezone. All hourly timestamps are in this zone.                                                       |
 | `generated_at`                          | ISO 8601 string     | Server time the response was assembled. Useful for "last updated" UI.                                        |
 | `cached`                                | boolean             | True if this response was served from the 10-minute in-memory cache.                                         |
-| `tomorrow.date`                         | `YYYY-MM-DD` string | Local date being forecasted (always tomorrow in `location.timezone`).                                        |
-| `tomorrow.verdict`                      | enum                | `"GO" \| "LIGHT_CAUTION" \| "HEAVY_CAUTION"`. See [Verdict tier semantics](#verdict-tier-semantics).         |
-| `tomorrow.verdict_reason`               | string              | Short human-readable explanation of why this verdict was chosen.                                             |
-| `tomorrow.rain_probability_max`         | integer 0-100       | Maximum hourly consensus probability across tennis hours (06:00-21:00 local).                                |
-| `tomorrow.rain_probability_mean`        | integer 0-100       | Mean hourly consensus probability across tennis hours.                                                       |
-| `tomorrow.precipitation_sum_in`         | number              | Total precipitation expected tomorrow (full-day Open-Meteo daily total), inches.                             |
-| `tomorrow.temperature_high_f`           | number              | Forecast high temperature, Fahrenheit.                                                                       |
-| `tomorrow.temperature_low_f`            | number              | Forecast low temperature, Fahrenheit.                                                                        |
-| `tomorrow.sunrise`                      | ISO string          | Local sunrise timestamp.                                                                                     |
-| `tomorrow.sunset`                       | ISO string          | Local sunset timestamp.                                                                                      |
-| `tomorrow.model_agreement`              | enum                | `"AGREE" \| "DISAGREE"`. DISAGREE if any tennis hour has `disagreement: true`.                               |
-| `tomorrow.uncertainty_note`             | string \| null      | Set if only one model is available, otherwise `null`.                                                        |
-| `tomorrow.wind_max_mph`                 | integer \| null     | Max consensus wind across tennis hours, rounded. `null` if neither model returned wind data.                 |
-| `tomorrow.wind_mean_mph`                | integer \| null     | Mean consensus wind across tennis hours, rounded.                                                            |
-| `tomorrow.first_rain_time`              | ISO string \| null  | Timestamp of first tennis hour with `rain_probability_consensus >= 50`. `null` if no hour crosses 50%.       |
-| `tomorrow.first_rain_hour_local`        | string \| null      | Same hour formatted `"H:MM AM/PM"` (e.g. `"3:00 PM"`) in `location.timezone`. `null` when no first rain.     |
-| `tomorrow.best_window`                  | object \| null      | Best tennis window: `{ label, max_rain_prob, verdict }`. `null` if all four windows are `HEAVY_CAUTION`.     |
-| `tomorrow.confidence`                   | enum                | `"HIGH" \| "MODERATE" \| "LOW"`. Binned from mean per-hour absolute difference between HRRR and AIFS.        |
-| `tomorrow.confidence_note`              | string              | Human-readable note explaining the confidence rating.                                                        |
-| `tennis_windows[]`                      | array of 4 objects  | Morning / Midday / Afternoon / Evening. Always in this order.                                                |
-| `tennis_windows[].label`                | string              | `"Morning" \| "Midday" \| "Afternoon" \| "Evening"`.                                                         |
-| `tennis_windows[].start`                | ISO string          | First hour timestamp included in the window.                                                                 |
-| `tennis_windows[].end`                  | ISO string          | Last hour timestamp included in the window.                                                                  |
-| `tennis_windows[].verdict`              | enum                | `"GO" \| "LIGHT_CAUTION" \| "HEAVY_CAUTION"`, applied to that window's hours only.                           |
-| `tennis_windows[].max_rain_prob`        | integer             | Max consensus probability in that window.                                                                    |
-| `tennis_windows[].reason`               | string              | Short human-readable verdict reason for that window.                                                         |
+| `today`                                 | object              | Forecast for today (the local calendar date in `location.timezone`). See [Today's partial day semantics](#todays-partial-day-semantics). |
+| `tomorrow`                              | object              | Forecast for tomorrow. Same field shape as `today`, minus `tennis_hours_remaining`. Always full 06:00–21:00. |
+| `today.date`                            | `YYYY-MM-DD` string | Local date being forecasted.                                                                                 |
+| `today.label`                           | string              | `"today"` on the today object, `"tomorrow"` on the tomorrow object.                                          |
+| `today.is_concluded`                    | boolean             | `true` on today when the current local hour is `>= 21` (no tennis hours remain). Always `false` on tomorrow. When `true`, most forecast fields are `null` — see [Today's partial day semantics](#todays-partial-day-semantics). |
+| `today.tennis_hours_remaining`          | integer             | Count of tennis hours (06:00–21:00 local) still ahead today. `0` when concluded. **Omitted entirely on tomorrow.** |
+| `today.verdict`                         | enum \| null        | `"GO" \| "LIGHT_CAUTION" \| "HEAVY_CAUTION"`. `null` when today is concluded. See [Verdict tier semantics](#verdict-tier-semantics). |
+| `today.verdict_reason`                  | string              | Short human-readable explanation of why this verdict was chosen. On a concluded today: `"Tennis day complete — check Tomorrow for the next forecast."` |
+| `today.rain_probability_max`            | integer 0-100 \| null | Maximum hourly consensus probability across the remaining tennis hours. `null` when concluded.             |
+| `today.rain_probability_mean`           | integer 0-100 \| null | Mean hourly consensus probability across the remaining tennis hours. `null` when concluded.                |
+| `today.precipitation_sum_in`            | number              | Total precipitation expected today (full-day Open-Meteo daily total), inches. Populated even when concluded. |
+| `today.temperature_high_f`              | number              | Forecast high temperature, Fahrenheit. Populated even when concluded.                                        |
+| `today.temperature_low_f`               | number              | Forecast low temperature, Fahrenheit. Populated even when concluded.                                         |
+| `today.sunrise`                         | ISO string          | Local sunrise timestamp. Populated even when concluded.                                                      |
+| `today.sunset`                          | ISO string          | Local sunset timestamp. Populated even when concluded.                                                       |
+| `today.model_agreement`                 | enum                | `"AGREE" \| "DISAGREE"`. DISAGREE if any remaining tennis hour has `disagreement: true`. `"AGREE"` on concluded today. |
+| `today.uncertainty_note`                | string \| null      | Set if only one model is available, otherwise `null`.                                                        |
+| `today.wind_max_mph`                    | integer \| null     | Max consensus wind across the remaining tennis hours, rounded. `null` when concluded or no wind data.        |
+| `today.wind_mean_mph`                   | integer \| null     | Mean consensus wind across the remaining tennis hours, rounded. `null` when concluded.                       |
+| `today.first_rain_time`                 | ISO string \| null  | Timestamp of first remaining tennis hour with `rain_probability_consensus >= 50`. `null` if no such hour or concluded. |
+| `today.first_rain_hour_local`           | string \| null      | Same hour formatted `"H:MM AM/PM"` in `location.timezone`. `null` when no first rain or concluded.           |
+| `today.best_window`                     | object \| null      | Best non-past tennis window today: `{ label, max_rain_prob, verdict }`. `null` if every remaining window is `HEAVY_CAUTION` or all windows are past (concluded). |
+| `today.confidence`                      | enum \| null        | `"HIGH" \| "MODERATE" \| "LOW"`. Binned from mean per-hour absolute difference between HRRR and AIFS over remaining tennis hours. `null` when concluded. |
+| `today.confidence_note`                 | string              | Human-readable note explaining the confidence rating. On a concluded today: `"Tennis day complete."` |
+| `today.tennis_windows[]`                | array of 4 objects  | Morning / Midday / Afternoon / Evening. Always 4 entries in this order, even on concluded today.             |
+| `today.tennis_windows[].label`          | string              | `"Morning" \| "Midday" \| "Afternoon" \| "Evening"`.                                                         |
+| `today.tennis_windows[].start`          | ISO string          | First hour timestamp included in the window.                                                                 |
+| `today.tennis_windows[].end`            | ISO string          | Last hour timestamp included in the window.                                                                  |
+| `today.tennis_windows[].verdict`        | enum                | `"GO" \| "LIGHT_CAUTION" \| "HEAVY_CAUTION"`, applied to that window's hours only. Reflects what the model said would happen, even for past windows. |
+| `today.tennis_windows[].max_rain_prob`  | integer             | Max consensus probability in that window.                                                                    |
+| `today.tennis_windows[].reason`         | string              | Short human-readable verdict reason for that window.                                                         |
+| `today.tennis_windows[].is_past`        | boolean             | `true` when the window's `endHour <= currentHour` (today only); always `false` on tomorrow's windows. Frontend can dim past windows in the UI. |
 | `hourly[].time`                         | string              | Naive local timestamp `YYYY-MM-DDTHH:mm`.                                                                    |
 | `hourly[].hour_local`                   | string              | Local hour formatted `HH:00`.                                                                                |
-| `hourly[].is_tomorrow`                  | boolean             | True if the timestamp falls on `tomorrow.date`.                                                              |
+| `hourly[].is_tomorrow`                  | boolean             | True if the timestamp falls on `tomorrow.date`; false if it falls on `today.date`. The `hourly[]` array contains today's remaining hours plus all of tomorrow. |
 | `hourly[].rain_probability_hrrr`        | int \| null         | HRRR precipitation probability for this hour. `null` if HRRR is unavailable.                                 |
 | `hourly[].rain_probability_aifs`        | int \| null         | AIFS precipitation probability for this hour. `null` if AIFS is unavailable.                                 |
 | `hourly[].rain_probability_consensus`   | int                 | Mean of the two models (or whichever is available). Integer 0-100.                                           |
