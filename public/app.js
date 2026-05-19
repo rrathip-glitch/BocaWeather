@@ -530,13 +530,15 @@
       const pastClass = isPast ? ' is-past' : '';
       return `
         <article class="window-card acc-${vc}${pastClass} anim-fade-up" style="--i:${i}; animation-delay:${i * 60}ms;">
-          ${bestBadge}
           <div class="flex items-start justify-between gap-2 mb-3">
             <div>
               <div class="text-xs uppercase tracking-[0.18em] text-ink-50 font-semibold mb-1">${escapeHtml(w.label)}</div>
               <div class="text-sm text-ink-70">${fmtTimeRange(w.start, w.end)}</div>
             </div>
-            <span class="verdict-pill pill-${vc}">${vl}</span>
+            <div class="flex flex-col items-end gap-1.5 shrink-0">
+              ${bestBadge}
+              <span class="verdict-pill pill-${vc}">${vl}</span>
+            </div>
           </div>
           <div class="flex items-baseline gap-2 mb-2">
             <div class="text-4xl font-bold text-ink-100 tabular-nums">${Math.round(w.max_rain_prob)}<span class="text-lg text-ink-50 font-medium">%</span></div>
@@ -553,7 +555,13 @@
     const canvas = $('#rain-chart');
     if (!canvas || !data.hourly) return;
 
-    const hours = data.hourly.slice(0, 36);
+    // When viewing Tomorrow, drop today-history so tomorrow fills the chart.
+    let visible = data.hourly;
+    if (appState.selectedDay === 'tomorrow') {
+      const cutoff = Date.now() - 60 * 60 * 1000;
+      visible = data.hourly.filter(h => new Date(h.time).getTime() >= cutoff);
+    }
+    const hours = visible.slice(0, 36);
     const labels = hours.map(h => fmtTimeShort(new Date(h.time)));
     const hrrr = hours.map(h => h.rain_probability_hrrr);
     const aifs = hours.map(h => h.rain_probability_aifs);
@@ -1101,8 +1109,8 @@
 
     const map = L.map(host, {
       center: RADAR_CENTER,
-      zoom: 9,
-      minZoom: 7,
+      zoom: 7,
+      minZoom: 5,
       maxZoom: 12,
       zoomControl: true,
       scrollWheelZoom: false,

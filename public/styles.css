@@ -514,12 +514,9 @@ body {
 .pill-heavy   { background: rgba(248, 113, 113, 0.15); color: var(--nogo);    border: 1px solid rgba(248, 113, 113, 0.30); }
 
 /* =================== BEST badge (tennis-window) ===================
-   Sits in the top-right of the window card matching tomorrow.best_window.label.
+   Stacked above the verdict pill in the card's top-right column.
    Subtle palm-green, uppercase, tiny check icon. */
 .best-badge {
-  position: absolute;
-  top: 12px;
-  right: 12px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -533,6 +530,7 @@ body {
   background: rgba(74, 222, 128, 0.10);
   border: 1px solid rgba(74, 222, 128, 0.30);
   box-shadow: 0 0 18px rgba(74, 222, 128, 0.15);
+  white-space: nowrap;
 }
 .best-badge svg {
   width: 10px;
