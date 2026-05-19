@@ -149,17 +149,20 @@ For each window the backend computes the max consensus probability across its ho
 
 ## Tennis accuracy enhancements
 
-Both the `today` and `tomorrow` day objects include five computed fields aimed at giving a tennis-specific read on conditions. All five are scoped to that day's tennis hours — full 06:00–21:00 for tomorrow, the remaining hours for today. On a concluded today they are all `null`. The named constants live at the top of `lib/forecast.js`.
+Both the `today` and `tomorrow` day objects include six computed fields aimed at giving a tennis-specific read on conditions: `wind_max_mph`, `wind_mean_mph`, `wind_gust_max_mph`, `first_rain_time` (+ `first_rain_hour_local`), `best_window`, and `confidence` (+ `confidence_note`). All are scoped to that day's tennis hours — full 06:00–21:00 for tomorrow, the remaining hours for today. On a concluded today they are all `null`. The named constants live at the top of `lib/forecast.js`.
 
-### Wind: `wind_max_mph`, `wind_mean_mph`
+### Wind: `wind_max_mph`, `wind_mean_mph`, `wind_gust_max_mph`
 
-Open-Meteo's `windspeed_10m` variable is requested for both HRRR and AIFS in the `hourly=` list (see `HOURLY_VARS` in `lib/openMeteo.js`). For each tennis hour, `lib/forecast.js` averages the two model values into `windspeed_10m_consensus`. When only one model has a value at an hour, the consensus is that single value.
+Open-Meteo's `windspeed_10m` and `wind_gusts_10m` variables are requested for both HRRR and AIFS in the `hourly=` list (see `HOURLY_VARS` in `lib/openMeteo.js`). For each tennis hour, `lib/forecast.js` averages the two model values into `windspeed_10m_consensus` and `wind_gusts_10m_consensus`. When only one model has a value at an hour, the consensus is that single value.
 
-- `wind_max_mph` is the maximum consensus value across tennis hours, rounded to integer mph.
-- `wind_mean_mph` is the arithmetic mean across tennis hours, rounded.
-- If neither model reports wind at any tennis hour, both fields are `null`.
+- `wind_max_mph` is the maximum consensus **sustained** value across tennis hours, rounded to integer mph.
+- `wind_mean_mph` is the arithmetic mean of consensus sustained wind across tennis hours, rounded.
+- `wind_gust_max_mph` is the maximum consensus **gust** value across tennis hours, rounded.
+- If neither model reports wind at any tennis hour, the relevant field is `null`.
 
 The units are `mph` because the upstream request sets `windspeed_unit=mph`.
+
+**Why gust matters separately from sustained.** On a Florida day with sustained 12 mph but gusts to 28 mph, the verdict math sees a calm afternoon; the player serving feels a coin-flip ball-toss. HRRR's GRIB `GUST` field is a 1-hour maximum, derived in WRF's surface-layer scheme and bias-corrected against METAR observations during HRRR's hourly data assimilation cycle. AIFS exposes a `wind_gusts_10m` variable in its surface set. We surface gust as a third wind number rather than rolling it into the verdict because gust thresholds are highly player-specific (a doubles game tolerates higher gusts than a singles serve), but a 25+ mph gust column is genuinely tennis-disrupting and the UI highlights it. See [ACCURACY.md](./ACCURACY.md#5-variables-we-use-and-why-each-one) for the meteorology citation.
 
 ### First rain: `first_rain_time`, `first_rain_hour_local`
 

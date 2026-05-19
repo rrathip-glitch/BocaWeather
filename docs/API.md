@@ -87,6 +87,7 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
     "uncertainty_note": null,
     "wind_max_mph": 9,
     "wind_mean_mph": 6,
+    "wind_gust_max_mph": 17,
     "first_rain_time": null,
     "first_rain_hour_local": null,
     "best_window": { "label": "Evening", "max_rain_prob": 8, "verdict": "GO" },
@@ -148,6 +149,7 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
     "uncertainty_note": null,
     "wind_max_mph": 14,
     "wind_mean_mph": 8,
+    "wind_gust_max_mph": 27,
     "first_rain_time": "2026-05-20T15:00",
     "first_rain_hour_local": "3:00 PM",
     "best_window": { "label": "Morning", "max_rain_prob": 12, "verdict": "GO" },
@@ -208,7 +210,10 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
       "weathercode": 95,
       "windspeed_10m_hrrr": 14,
       "windspeed_10m_aifs": 12,
-      "windspeed_10m_consensus": 13.0
+      "windspeed_10m_consensus": 13.0,
+      "wind_gusts_10m_hrrr": 27,
+      "wind_gusts_10m_aifs": 24,
+      "wind_gusts_10m_consensus": 25.5
     }
   ],
   "models": {
@@ -247,8 +252,9 @@ The `today` and `tomorrow` objects share the same field shape. `today` adds two 
 | `today.sunset`                          | ISO string          | Local sunset timestamp. Populated even when concluded.                                                       |
 | `today.model_agreement`                 | enum                | `"AGREE" \| "DISAGREE"`. DISAGREE if any remaining tennis hour has `disagreement: true`. `"AGREE"` on concluded today. |
 | `today.uncertainty_note`                | string \| null      | Set if only one model is available, otherwise `null`.                                                        |
-| `today.wind_max_mph`                    | integer \| null     | Max consensus wind across the remaining tennis hours, rounded. `null` when concluded or no wind data.        |
-| `today.wind_mean_mph`                   | integer \| null     | Mean consensus wind across the remaining tennis hours, rounded. `null` when concluded.                       |
+| `today.wind_max_mph`                    | integer \| null     | Max consensus sustained wind across the remaining tennis hours, rounded. `null` when concluded or no wind data. |
+| `today.wind_mean_mph`                   | integer \| null     | Mean consensus sustained wind across the remaining tennis hours, rounded. `null` when concluded.                |
+| `today.wind_gust_max_mph`               | integer \| null     | Max consensus wind gust (from `wind_gusts_10m`) across the remaining tennis hours, rounded. Gusts above ~25 mph disrupt ball toss and lobs even with no rain risk. `null` when concluded or both models lack gust data. |
 | `today.first_rain_time`                 | ISO string \| null  | Timestamp of first remaining tennis hour with `rain_probability_consensus >= 50`. `null` if no such hour or concluded. |
 | `today.first_rain_hour_local`           | string \| null      | Same hour formatted `"H:MM AM/PM"` in `location.timezone`. `null` when no first rain or concluded.           |
 | `today.best_window`                     | object \| null      | Best non-past tennis window today: `{ label, max_rain_prob, verdict }`. `null` if every remaining window is `HEAVY_CAUTION` or all windows are past (concluded). |
@@ -274,9 +280,12 @@ The `today` and `tomorrow` objects share the same field shape. `today` adds two 
 | `hourly[].disagreement`                 | boolean             | True where `abs(rain_probability_hrrr - rain_probability_aifs) > 25`.                                        |
 | `hourly[].temperature_f`                | number \| null      | Consensus temperature, Fahrenheit.                                                                           |
 | `hourly[].weathercode`                  | int \| null         | WMO weathercode (whichever model reports first).                                                             |
-| `hourly[].windspeed_10m_hrrr`           | number \| null      | HRRR wind speed at 10 m, mph.                                                                                |
-| `hourly[].windspeed_10m_aifs`           | number \| null      | AIFS wind speed at 10 m, mph.                                                                                |
-| `hourly[].windspeed_10m_consensus`      | number \| null      | Mean of the two model wind speeds, mph.                                                                      |
+| `hourly[].windspeed_10m_hrrr`           | number \| null      | HRRR sustained wind speed at 10 m, mph.                                                                      |
+| `hourly[].windspeed_10m_aifs`           | number \| null      | AIFS sustained wind speed at 10 m, mph.                                                                      |
+| `hourly[].windspeed_10m_consensus`      | number \| null      | Mean of the two model sustained wind speeds, mph.                                                            |
+| `hourly[].wind_gusts_10m_hrrr`          | number \| null      | HRRR peak 10 m wind gust for the hour, mph. From NOAA GRIB `GUST` field.                                     |
+| `hourly[].wind_gusts_10m_aifs`          | number \| null      | AIFS peak 10 m wind gust for the hour, mph.                                                                  |
+| `hourly[].wind_gusts_10m_consensus`     | number \| null      | Mean of the two model gust speeds, mph. Surfaced when materially higher than sustained.                      |
 | `models.hrrr.available` / `aifs.available` | boolean          | True if that model returned data this cycle.                                                                 |
 | `models.hrrr.id` / `aifs.id`            | string              | The Open-Meteo model identifier used (e.g. `gfs_hrrr`, `ecmwf_aifs025`).                                     |
 

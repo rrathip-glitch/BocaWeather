@@ -398,10 +398,22 @@
     }
 
     if (t.wind_max_mph != null) {
+      // Show gust alongside sustained when gust is materially higher (>= +5 mph).
+      // Gusts are the actual tennis-disruption metric: a 12 mph sustained / 26 mph
+      // gust day will ruin ball-toss even though the sustained reading looks calm.
+      const sustained = Math.round(t.wind_max_mph);
+      const gust = t.wind_gust_max_mph != null ? Math.round(t.wind_gust_max_mph) : null;
+      const showGust = gust != null && gust - sustained >= 5;
+      const text = showGust
+        ? `Wind: <strong>${sustained}</strong> · gusts <strong>${gust} mph</strong>`
+        : `Wind: <strong>${sustained} mph</strong> peak`;
+      const gustTone = showGust && gust >= 25 ? 'amber' : 'slate';
       pills.push({
-        tone: 'slate',
-        title: 'Peak forecast wind during tennis hours.',
-        html: `<span class="pill-dot"></span><span>Wind: <strong>${Math.round(t.wind_max_mph)} mph</strong> peak</span>`,
+        tone: gustTone,
+        title: showGust
+          ? 'Peak sustained wind and peak gust during tennis hours. Gusts above 25 mph make ball-toss and lobs unreliable.'
+          : 'Peak forecast wind during tennis hours.',
+        html: `<span class="pill-dot"></span><span>${text}</span>`,
       });
     }
 
@@ -437,9 +449,19 @@
         tint: rainTint(t.rain_probability_max),
       });
     }
+    // Wind tile prefers the gust when it's materially higher than sustained,
+    // because the gust is what actually disrupts a serve toss or lob. When
+    // gust ~= sustained we keep the simpler "X mph" reading.
+    const sustainedPeak = t.wind_max_mph != null ? Math.round(t.wind_max_mph) : null;
+    const gustPeak      = t.wind_gust_max_mph != null ? Math.round(t.wind_gust_max_mph) : null;
+    const gustWorthShowing = sustainedPeak != null && gustPeak != null && gustPeak - sustainedPeak >= 5;
     allStats.push({
-      label: 'Wind (peak)',
-      value: t.wind_max_mph != null ? `${Math.round(t.wind_max_mph)} mph` : '—',
+      label: gustWorthShowing ? 'Wind / gust' : 'Wind (peak)',
+      value: sustainedPeak == null
+        ? '—'
+        : gustWorthShowing
+          ? `${sustainedPeak} / ${gustPeak} mph`
+          : `${sustainedPeak} mph`,
       tint: null,
     });
     if (t.temperature_high_f != null) {
