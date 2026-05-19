@@ -39,7 +39,9 @@ The UI is built so a disagreement does not look like an error. It looks like inf
 
 ## 3. Verdict thresholds
 
-The day-level verdict for "should I play tomorrow" is one of three values. All daily stats are scoped to **tennis hours**: the contiguous block 06:00 through 21:00 local time tomorrow (16 hourly slots, 06..21 inclusive). Daily verdicts use the 6am-9pm window because that's the tennis day. A 3am thunderstorm shouldn't change tomorrow's tennis verdict if afternoon is clear.
+The day-level verdict for "should I play tomorrow" is one of three values: `HEAVY_CAUTION` (displayed as "HEAVY CAUTION"), `LIGHT_CAUTION` (displayed as "CAUTION"), and `GO`. **The two cautionary tier names were renamed in this pass** — the worst tier used to be a hard-no label and the middle tier used to be unqualified caution. The thresholds, computation, and classification logic are **unchanged** — only the labels and the human-readable reason strings changed. The rename exists because the user rejected absolutist "do not play" framing: even the worst-looking day is rarely a hard call, and the new names reflect that judgement.
+
+All daily stats are scoped to **tennis hours**: the contiguous block 06:00 through 21:00 local time tomorrow (16 hourly slots, 06..21 inclusive). Daily verdicts use the 6am-9pm window because that's the tennis day. A 3am thunderstorm shouldn't change tomorrow's tennis verdict if afternoon is clear.
 
 From those 16 tennis hours we compute:
 
@@ -48,32 +50,36 @@ From those 16 tennis hours we compute:
 - `peakTennisProb` — max consensus rain probability across the tennis hours.
 - `disagreementAtRiskyHour` — true if any tennis hour has model disagreement AND consensus probability ≥ 35%.
 
-### NO_GO
+### HEAVY_CAUTION
 
 Any of:
 
 - `heavyHours >= 6` (six or more tennis hours at ≥ 60% rain chance)
 - `tennisPrecip >= 0.4` in (heavy total rainfall expected during play hours)
 
-### CAUTION
+Reasons in this tier are phrased as "Strong caution: …" (for example, "Strong caution: 7 tennis hours show rain probability at or above 60%").
 
-Any of (and not already NO_GO):
+### LIGHT_CAUTION
+
+Any of (and not already HEAVY_CAUTION):
 
 - `peakTennisProb >= 50` (a single hour with material rain risk)
 - `tennisPrecip >= 0.1` in
 - `disagreementAtRiskyHour` (models disagree at a meaningfully-wet hour)
 
+Reasons in this tier are phrased as "Heads up: …" (for example, "Heads up: peak hourly rain probability is 55% during tennis hours").
+
 ### GO
 
-None of the above.
+None of the above. Reasons stay phrased as "Looks good: …" (for example, "Looks good: low rain probability and no model disagreement during tennis hours").
 
-If multiple reasons apply, the response surfaces the most relevant one: NO_GO heavy-hours wins over NO_GO precip; CAUTION peak wins over CAUTION disagreement.
+If multiple reasons apply, the response surfaces the most relevant one: HEAVY_CAUTION heavy-hours wins over HEAVY_CAUTION precip; LIGHT_CAUTION peak wins over LIGHT_CAUTION disagreement.
 
 These thresholds are tuned for tennis specifically: a tennis court takes 30-60 minutes to dry after a brief shower and is unplayable during one. They are not generic "is it sunny" thresholds and should not be reused for other activities without re-tuning.
 
 Window verdicts (Morning / Midday / Afternoon / Evening) remain scoped to their own hours with the original thresholds — see section 4. Only the daily verdict changed to the tennis-hours-scoped rules above.
 
-When changing these numbers, update this section of this document **in the same commit** as the code change. The thresholds are part of the product, not implementation details.
+When changing these numbers, update this section of this document **in the same commit** as the code change. The thresholds are part of the product, not implementation details. If you also rename the tiers again, propagate the new names through `lib/forecast.js`, `public/app.js`, and all four `docs/*.md` files in the same commit.
 
 ## 4. Tennis windows
 
@@ -86,11 +92,61 @@ The day is split into four windows that match the community's actual play patter
 | Afternoon | 14:00-18:00 |
 | Evening   | 18:00-21:00 |
 
-Each window gets its own verdict (GO / CAUTION / NO_GO) computed by applying the same thresholds to **that window's hours only**. This is what lets a user see "morning is fine, afternoon is a wash, evening might clear up" — which is the practical Florida summer pattern.
+Each window gets its own verdict (GO / LIGHT_CAUTION / HEAVY_CAUTION) computed by applying the same thresholds to **that window's hours only**. This is what lets a user see "morning is fine, afternoon is a wash, evening might clear up" — which is the practical Florida summer pattern.
 
 The window boundaries live in `lib/forecast.js` as `TENNIS_WINDOWS`. The frontend layout assumes four windows; changing the count requires a frontend change too.
 
-## 5. Why no nowcasting in this app
+## 5. Tennis accuracy enhancements
+
+The day-level verdict and per-window grid answer "can I play and roughly when," but several practical tennis questions need more specific data. This pass added six fields to the `tomorrow` API object that exist purely to make the day-before tennis decision sharper. None of them change the verdict logic in section 3 — they sit alongside it as additional context surfaced in the UI.
+
+### Wind: `wind_max_mph` and `wind_mean_mph`
+
+Both are computed over the tennis hours (06:00–21:00 local) and rounded to the nearest integer. Wind matters for tennis in a way that does not show up anywhere else in a generic forecast:
+
+- **Below 10 mph** — not noticeable.
+- **10–15 mph** — affects ball flight on lobs and serve tosses; competitive but fine.
+- **15–20 mph** — noticeably changes the game; lob-heavy and topspin-heavy players feel it.
+- **Above 20 mph** — the game stops being fun even with a clear sky. The ball does not go where you hit it; serve tosses are a coin flip.
+
+A 30% rain chance day with 22 mph sustained wind is, in tennis terms, a worse day than a 50% rain chance day with calm air. Surfacing peak and mean lets the user see both the worst hour and the overall character of the day.
+
+### `first_rain_time` and `first_rain_hour_local`
+
+`first_rain_time` is the ISO timestamp of the first tennis hour where consensus rain probability is ≥ 50%, or `null` if no tennis hour crosses that bar. `first_rain_hour_local` is the same value rendered as `"H:MM AM/PM"` for direct UI use.
+
+This answers the very practical question: **"can I get a set in before it hits?"** A day with first-rain-time of 2pm is a very different planning problem than a day with first-rain-time of 8am, even if both end up classified as LIGHT_CAUTION. The verdict tells you the day's character; this field tells you when to actually show up.
+
+### `best_window`
+
+An object — `{ label, max_rain_prob, verdict }` — naming the recommended tennis window for tomorrow, or `null` if every window is HEAVY_CAUTION. Selection rule:
+
+1. If any window is GO, pick the GO window with the lowest peak rain probability.
+2. Otherwise, if any window is LIGHT_CAUTION, pick the LIGHT_CAUTION window with the lowest peak rain probability.
+3. Otherwise return `null`.
+
+This is a deliberate product choice: the user should not have to scan four window cards and do the comparison themselves. The frontend renders a "BEST" badge on the matching window card. When `best_window` is `null` the UI does not invent one — that null is itself information ("there is no clean window tomorrow").
+
+### `confidence` and `confidence_note`
+
+`confidence` is one of `"HIGH"`, `"MODERATE"`, or `"LOW"`, derived from the mean absolute difference between the two models' rain probability across tennis hours:
+
+- Mean abs diff **< 5 pp** → `HIGH`.
+- Mean abs diff **5–15 pp** → `MODERATE`.
+- Mean abs diff **≥ 15 pp** → `LOW`.
+- Only one model available (the other fetch failed) → `LOW`, always.
+
+`confidence_note` is a short human-readable explanation rendered as a subtitle pill ("Models agree closely" / "Models disagree on afternoon timing" / "Single-model forecast — treat as low confidence" etc.).
+
+The existing `disagree` flag on individual hours is a binary alarm ("these two hours specifically diverge"). `confidence` is the day-shaped summary: how much weight to put on the verdict at all. They complement each other and the UI shows both. A `GO` verdict with `confidence: "LOW"` is a meaningfully different recommendation than a `GO` verdict with `confidence: "HIGH"`, and the user should be able to see that at a glance.
+
+## 6. Visual hierarchy of verdict tiers
+
+The three verdict tiers are not presented with equal weight in the UI, and that is deliberate. `HEAVY_CAUTION` and `GO` both shout — large weight, bright color, full glow — because both are clear recommendations (strongly avoid, or strongly go). `LIGHT_CAUTION` murmurs: smaller font, lighter weight, lower-opacity glow. The middle tier should read as "watch closely," not as a hard call in either direction.
+
+If you redesign the hero typography, preserve that hierarchy. A `LIGHT_CAUTION` day rendered with the same visual weight as `HEAVY_CAUTION` will read to users as a hard "do not play" call, which is exactly the absolutist tone the rename in section 3 was meant to walk back. The visual softness is part of the same product judgement as the renamed labels.
+
+## 7. Why no nowcasting in this app
 
 We deliberately do not try to answer "is it about to rain in the next hour" — and we do not pretend to. Model forecasts run hourly, and even HRRR's 1-hour outputs are not the right tool for the 15-minutes-before-match decision.
 
@@ -101,7 +157,7 @@ For the very-short-range decision ("we are walking to the court now, is the cell
 
 This is an explicit non-goal so that a future agent does not bolt on a half-working nowcaster and dilute the day-before product. Radar and forecast models answer different questions on different time horizons. Keep them separate.
 
-## 6. Stack rationale
+## 8. Stack rationale
 
 - **Node.js 20 + Express 4 (ESM, single process)** — One process is enough for the load and the cache lives in process memory. No external dependencies (no Redis, no DB) means Railway deploys are trivial and there is nothing to misconfigure. Node 20 is current LTS.
 - **No frontend framework** — Plain HTML, Tailwind via CDN, Chart.js via CDN, one `app.js` file. There is no build step. The page loads instantly on mobile and there is nothing to break in CI. The app's value is in the data, not the UI plumbing.
@@ -109,7 +165,7 @@ This is an explicit non-goal so that a future agent does not bolt on a half-work
 - **10-minute in-memory cache** — Open-Meteo updates HRRR hourly and AIFS less often. A 10-minute cache cuts our outbound requests to roughly six per hour even under load, well inside the free-tier budget. Cache is intentionally process-local: a Railway restart flushes it, which is the simplest possible cache invalidation story.
 - **No database** — There is no user state, no history (yet), and no need to persist anything across restarts. Adding a DB would be the largest possible architectural change for zero current product value.
 
-## 7. Project structure
+## 9. Project structure
 
 ```
 BocaWeather/
@@ -135,13 +191,13 @@ BocaWeather/
     AGENT_HANDOFF.md       # Onboarding doc for new agents
 ```
 
-## 8. Non-goals
+## 10. Non-goals
 
 The following are explicitly out of scope for this version. Anyone adding them needs a real reason and should update this section.
 
 - **General-purpose weather app.** No temperature dashboards, no wind roses, no 10-day outlook. Rain probability for tennis, that is it.
 - **Multiple locations.** One location, hardcoded in `lib/config.js`. Adding more requires a frontend selector and a routing decision; not worth it until requested.
 - **Push notifications / alerts.** No accounts, no subscriptions, no email. Stateless app.
-- **Nowcasting.** See section 5.
+- **Nowcasting.** See section 7.
 - **Historical accuracy tracking.** Worth doing eventually (it would let us validate the thresholds in section 3) but requires a database and is not in scope now.
 - **User accounts.** None.

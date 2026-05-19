@@ -27,6 +27,18 @@ When two models are requested in a single call (`models=gfs_hrrr,ecmwf_aifs025`)
 
 HRRR covers CONUS only, so it always works for Boca Raton. AIFS is global and very rarely unavailable. The fallback path is defensive, not load-bearing.
 
+## Verdict tier naming
+
+The three verdict tiers are exported from `lib/forecast.js` as the `VERDICT` enum and used in both `tomorrow.verdict` and every `tennis_windows[].verdict`:
+
+| Tier             | Previous name | Meaning                                                                          |
+| ---------------- | ------------- | -------------------------------------------------------------------------------- |
+| `GO`             | `GO`          | Conditions favor play. Verdict reason uses an affirmative tone ("Looks good"). |
+| `LIGHT_CAUTION`  | `CAUTION`     | Some risk; check the radar before heading out. Reason starts "Heads up".         |
+| `HEAVY_CAUTION`  | `NO_GO`       | Significant risk of rain interruptions. Reason starts "Strong caution".          |
+
+The thresholds that drive verdict selection are unchanged from the previous `GO` / `CAUTION` / `NO_GO` regime — only the string labels and the wording of `verdict_reason` were updated. The user explicitly asked to drop the absolutist "Skip it" / `NO_GO` wording in favor of strong-but-non-absolutist guidance, so backend logic that depended on the old names should be updated to use the new `VERDICT` constants (don't compare against string literals directly).
+
 ## Verdict thresholds
 
 Computed in `lib/forecast.js`. The **daily** verdict and the per-**window** verdicts use different rules.
@@ -43,11 +55,13 @@ Tennis-hours stats:
 - `meanTennisProb` — mean `rain_probability_consensus` across tennis hours.
 - `disagreementAtRiskyHour` — any tennis hour with `disagreement === true` AND `rain_probability_consensus >= 35`.
 
-| Verdict   | Trigger                                                                                              |
-| --------- | ---------------------------------------------------------------------------------------------------- |
-| `NO_GO`   | `heavyHours >= 6` **OR** `tennisPrecip >= 0.4` in                                                    |
-| `CAUTION` | `peakTennisProb >= 50` **OR** `tennisPrecip >= 0.1` in **OR** `disagreementAtRiskyHour`              |
-| `GO`      | none of the above                                                                                    |
+| Verdict           | Trigger                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `HEAVY_CAUTION`   | `heavyHours >= 6` **OR** `tennisPrecip >= 0.4` in                                                    |
+| `LIGHT_CAUTION`   | `peakTennisProb >= 50` **OR** `tennisPrecip >= 0.1` in **OR** `disagreementAtRiskyHour`              |
+| `GO`              | none of the above                                                                                    |
+
+Priority order if multiple thresholds apply: `heavyHours` > `tennisPrecip` for the HEAVY tier; `peakTennisProb` > `tennisPrecip` > `disagreementAtRiskyHour` for the LIGHT tier. The `verdict_reason` string reflects whichever trigger fired.
 
 `tomorrow.rain_probability_max` and `tomorrow.rain_probability_mean` in the API response are `peakTennisProb` and `meanTennisProb` respectively — not the full-day stats. `tomorrow.precipitation_sum_in` is still the Open-Meteo daily total.
 
@@ -57,11 +71,11 @@ The named constants live at the top of `lib/forecast.js` (`TENNIS_DAY_START_HOUR
 
 Each tennis window keeps the older threshold rules, applied only to the hours inside that window:
 
-| Verdict   | Trigger                                                                                                                                                                                |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NO_GO`   | Max hourly precipitation probability > 60% **OR** precipitation_sum > 0.2 inch                                                                                                         |
-| `CAUTION` | Max hourly probability between 35% and 60% **OR** precipitation_sum between 0.05 and 0.2 inch **OR** any hour in the window has model disagreement                                     |
-| `GO`      | Max hourly probability < 35% **AND** precipitation_sum < 0.05 inch **AND** models agree                                                                                                |
+| Verdict           | Trigger                                                                                                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HEAVY_CAUTION`   | Max hourly precipitation probability > 60% **OR** precipitation_sum > 0.2 inch                                                                                                         |
+| `LIGHT_CAUTION`   | Max hourly probability between 35% and 60% **OR** precipitation_sum between 0.05 and 0.2 inch **OR** any hour in the window has model disagreement                                     |
+| `GO`              | Max hourly probability < 35% **AND** precipitation_sum < 0.05 inch **AND** models agree                                                                                                |
 
 **Hourly disagreement flag:** `|prob_hrrr - prob_aifs| > 25` percentage points. Used to render the per-hour `disagreement: true` chip.
 
@@ -83,6 +97,52 @@ Defined in `TENNIS_WINDOWS` in `lib/config.js`. All times are local (`America/Ne
 | Evening   | 18:00 – 21:00  |
 
 For each window the backend computes the max consensus probability across its hours, the sum of consensus precipitation, and an "any hour disagrees" flag, then runs those through the same verdict rules above.
+
+## Tennis accuracy enhancements
+
+The `tomorrow` object includes five computed fields aimed at giving a tennis-specific read on conditions. All five are scoped to tennis hours (06:00–21:00 local on tomorrow, the same window the daily verdict uses). The named constants live at the top of `lib/forecast.js`.
+
+### Wind: `wind_max_mph`, `wind_mean_mph`
+
+Open-Meteo's `windspeed_10m` variable is requested for both HRRR and AIFS in the `hourly=` list (see `HOURLY_VARS` in `lib/openMeteo.js`). For each tennis hour, `lib/forecast.js` averages the two model values into `windspeed_10m_consensus`. When only one model has a value at an hour, the consensus is that single value.
+
+- `wind_max_mph` is the maximum consensus value across tennis hours, rounded to integer mph.
+- `wind_mean_mph` is the arithmetic mean across tennis hours, rounded.
+- If neither model reports wind at any tennis hour, both fields are `null`.
+
+The units are `mph` because the upstream request sets `windspeed_unit=mph`.
+
+### First rain: `first_rain_time`, `first_rain_hour_local`
+
+Scan tennis hours in chronological order. The first hour whose `rain_probability_consensus >= 50` (the `FIRST_RAIN_THRESHOLD` constant) populates both fields:
+
+- `first_rain_time` is the raw Open-Meteo timestamp (naive local, e.g. `"2026-05-20T15:00"`).
+- `first_rain_hour_local` is the same hour formatted via `Intl.DateTimeFormat` for `America/New_York` as `"3:00 PM"`.
+
+If no tennis hour crosses 50%, both fields are `null`. Threshold rationale: 50% is the lowest probability at which a player should actively plan around an incoming cell rather than just glance at the radar.
+
+### `best_window`
+
+Walk all four `tennis_windows` and choose:
+
+1. The `GO` window with the lowest `max_rain_prob`. Ties are broken by array order (Morning first).
+2. If no window is `GO`, the `LIGHT_CAUTION` window with the lowest `max_rain_prob`.
+3. If all four are `HEAVY_CAUTION`, `best_window` is `null` — there is no recommended slot.
+
+Shape: `{ label, max_rain_prob, verdict }` — a minimal pointer into `tennis_windows`. The frontend can use this to highlight the "play now" slot without re-implementing the selection logic.
+
+### Confidence: `confidence`, `confidence_note`
+
+Compute `meanAbsDiff` = mean of `|prob_hrrr - prob_aifs|` over tennis hours where *both* models have a value. Bin it:
+
+| Bin       | Threshold                                  | Note format                                                                       |
+| --------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
+| HIGH      | `meanAbsDiff < 5`                          | `"Both models agree within N pts on average."`                                    |
+| MODERATE  | `5 <= meanAbsDiff < 15`                    | `"Models differ by N pts on average — moderate uncertainty."`                     |
+| LOW       | `meanAbsDiff >= 15`                        | `"Models differ by N pts on average — forecast uncertain."`                       |
+| LOW (1-model fallback) | Only one model has any tennis hour | `"Only one model available — forecast uncertainty is higher."`             |
+
+`N` in each template is `Math.round(meanAbsDiff)`. `meanAbsDiff` thresholds live in the `CONFIDENCE_HIGH_MAX_DIFF` and `CONFIDENCE_MODERATE_MAX_DIFF` constants. This is a distinct signal from `model_agreement` / `uncertainty_note`: those flag whether models are misaligned, while `confidence` quantifies the typical-hour disagreement and is meant to be surfaced to users directly.
 
 ## Caching
 
@@ -119,11 +179,16 @@ curl -s http://localhost:3000/api/health
 # Full forecast
 curl -s http://localhost:3000/api/forecast | jq .
 
-# Just tomorrow's verdict
-curl -s http://localhost:3000/api/forecast | jq '.tomorrow | {date, verdict, verdict_reason, model_agreement}'
+# Just tomorrow's verdict and the tennis-accuracy fields
+curl -s http://localhost:3000/api/forecast \
+  | jq '.tomorrow | {date, verdict, verdict_reason, model_agreement, confidence, confidence_note}'
 
-# Tennis windows summary
-curl -s http://localhost:3000/api/forecast | jq '.tennis_windows[] | {label, verdict, max_rain_prob}'
+# Tennis windows summary (new tier names)
+curl -s http://localhost:3000/api/forecast | jq '.tennis_windows[] | {label, verdict, max_rain_prob, reason}'
+
+# Wind + first rain + best window snapshot
+curl -s http://localhost:3000/api/forecast \
+  | jq '.tomorrow | {wind_max_mph, wind_mean_mph, first_rain_hour_local, first_rain_time, best_window}'
 
 # Confirm both models came back
 curl -s http://localhost:3000/api/forecast | jq '.models'

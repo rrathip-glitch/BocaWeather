@@ -33,84 +33,107 @@ curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '.tomorrow'
 
 `tomorrow.rain_probability_max` and `tomorrow.rain_probability_mean` are computed over the tennis hours only (06:00–21:00 local), not all 24 hours of tomorrow. See [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) for the rationale. `tomorrow.precipitation_sum_in` continues to reflect the full-day Open-Meteo daily total.
 
+### Verdict tier semantics
+
+Both `tomorrow.verdict` and each `tennis_windows[].verdict` use the same three-value enum:
+
+| Tier             | Plain-language meaning                                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `GO`             | Conditions look good for tennis. Reasons start with "Looks good" (daily) or "Clear" (window).                                          |
+| `LIGHT_CAUTION`  | Some rain risk; check the radar before heading out. Reasons start with "Heads up". The forecast is still playable in most cases.       |
+| `HEAVY_CAUTION`  | High likelihood of rain interrupting play. Reasons start with "Strong caution". Plan a backup or shift to a different time of day.     |
+
+This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection thresholds are unchanged; only the labels and the wording of `verdict_reason` were updated to drop the absolutist "Skip it" framing.
+
 ### Response: 200 OK
 
 ```json
 {
   "location": {
-    "name": "Santa Barbara, Boca Raton, FL",
+    "name": "Santa Barbara, Boca Raton",
     "lat": 26.3797,
     "lon": -80.1539,
     "timezone": "America/New_York"
   },
-  "generatedAt": "2026-05-19T13:42:11.000Z",
+  "generated_at": "2026-05-19T13:42:11.000Z",
+  "cached": true,
   "tomorrow": {
     "date": "2026-05-20",
-    "verdict": "CAUTION",
-    "reason": "Models disagree at peak hour (HRRR 68%, AIFS 22%).",
-    "maxProb": 68,
-    "precipSumIn": 0.12,
-    "peakHourLocal": "15:00"
+    "verdict": "LIGHT_CAUTION",
+    "verdict_reason": "Heads up: peak 55% rain chance during tennis hours — watch the radar.",
+    "rain_probability_max": 55,
+    "rain_probability_mean": 22,
+    "precipitation_sum_in": 0.12,
+    "temperature_high_f": 84,
+    "temperature_low_f": 72,
+    "sunrise": "2026-05-20T06:30",
+    "sunset": "2026-05-20T20:00",
+    "model_agreement": "DISAGREE",
+    "uncertainty_note": null,
+    "wind_max_mph": 14,
+    "wind_mean_mph": 8,
+    "first_rain_time": "2026-05-20T15:00",
+    "first_rain_hour_local": "3:00 PM",
+    "best_window": { "label": "Morning", "max_rain_prob": 12, "verdict": "GO" },
+    "confidence": "MODERATE",
+    "confidence_note": "Models differ by 9 pts on average — moderate uncertainty."
   },
-  "windows": [
+  "tennis_windows": [
     {
-      "name": "Morning",
-      "startLocal": "06:00",
-      "endLocal": "10:00",
+      "label": "Morning",
+      "start": "2026-05-20T06:00",
+      "end": "2026-05-20T09:00",
       "verdict": "GO",
-      "maxProb": 12,
-      "precipSumIn": 0.0,
-      "disagree": false
+      "max_rain_prob": 12,
+      "reason": "Clear: peak 12% rain chance."
     },
     {
-      "name": "Midday",
-      "startLocal": "10:00",
-      "endLocal": "14:00",
+      "label": "Midday",
+      "start": "2026-05-20T10:00",
+      "end": "2026-05-20T13:00",
       "verdict": "GO",
-      "maxProb": 28,
-      "precipSumIn": 0.01,
-      "disagree": false
+      "max_rain_prob": 28,
+      "reason": "Clear: peak 28% rain chance."
     },
     {
-      "name": "Afternoon",
-      "startLocal": "14:00",
-      "endLocal": "18:00",
-      "verdict": "NO_GO",
-      "maxProb": 68,
-      "precipSumIn": 0.11,
-      "disagree": true
+      "label": "Afternoon",
+      "start": "2026-05-20T14:00",
+      "end": "2026-05-20T17:00",
+      "verdict": "HEAVY_CAUTION",
+      "max_rain_prob": 68,
+      "reason": "Strong caution: peak 68% rain chance in this window."
     },
     {
-      "name": "Evening",
-      "startLocal": "18:00",
-      "endLocal": "21:00",
-      "verdict": "CAUTION",
-      "maxProb": 42,
-      "precipSumIn": 0.02,
-      "disagree": false
+      "label": "Evening",
+      "start": "2026-05-20T18:00",
+      "end": "2026-05-20T20:00",
+      "verdict": "LIGHT_CAUTION",
+      "max_rain_prob": 42,
+      "reason": "Heads up: peak 42% rain chance — keep an eye on the radar."
     }
   ],
-  "hourly": {
-    "timeLocal": [
-      "2026-05-20T00:00",
-      "2026-05-20T01:00",
-      "2026-05-20T02:00",
-      "..."
-    ],
-    "precipProbHrrr":  [5, 5, 7, 10, 10, 15, 20, 25, 30, 35, 40, 50, 55, 60, 65, 68, 60, 45, 35, 25, 18, 12, 10, 8],
-    "precipProbAifs":  [8, 8, 8, 10, 12, 14, 18, 20, 22, 22, 22, 22, 20, 20, 22, 22, 25, 30, 35, 38, 30, 20, 15, 10],
-    "precipProbMean":  [7, 7, 8, 10, 11, 15, 19, 23, 26, 29, 31, 36, 38, 40, 44, 45, 43, 38, 35, 32, 24, 16, 13, 9],
-    "precipInHrrr":    [0, 0, 0, 0, 0, 0, 0, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.11, 0.10, 0.08, 0.05, 0.02, 0.01, 0, 0, 0, 0, 0],
-    "precipInAifs":    [0, 0, 0, 0, 0, 0, 0, 0,    0.01, 0.01, 0.01, 0.01, 0.02, 0.02, 0.02, 0.02, 0.03, 0.04, 0.05, 0.04, 0.02, 0.01, 0, 0],
-    "disagree":        [false, false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, false, false, false, false, false, false, false]
-  },
+  "hourly": [
+    {
+      "time": "2026-05-20T15:00",
+      "hour_local": "15:00",
+      "is_tomorrow": true,
+      "rain_probability_hrrr": 68,
+      "rain_probability_aifs": 22,
+      "rain_probability_consensus": 45,
+      "precipitation_in_hrrr": 0.10,
+      "precipitation_in_aifs": 0.02,
+      "precipitation_in_consensus": 0.06,
+      "disagreement": true,
+      "temperature_f": 82.5,
+      "weathercode": 95,
+      "windspeed_10m_hrrr": 14,
+      "windspeed_10m_aifs": 12,
+      "windspeed_10m_consensus": 13.0
+    }
+  ],
   "models": {
-    "hrrr": { "id": "gfs_hrrr", "ok": true },
-    "aifs": { "id": "ecmwf_aifs025", "ok": true }
-  },
-  "cache": {
-    "hit": true,
-    "ageSeconds": 142
+    "hrrr": { "available": true, "id": "gfs_hrrr" },
+    "aifs": { "available": true, "id": "ecmwf_aifs025" }
   }
 }
 ```

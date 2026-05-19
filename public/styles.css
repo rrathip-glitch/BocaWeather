@@ -73,7 +73,10 @@ body {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
 
-/* =================== Verdict glow =================== */
+/* =================== Verdict glow ===================
+   Three-tier opacity ladder so the glow tracks the verbal hierarchy:
+   GO and HEAVY both shout (0.55), LIGHT murmurs (0.30). The base
+   .hero-glow opacity is overridden per-tier below.                  */
 .hero-glow {
   position: absolute;
   inset: -30% -10% -10% -10%;
@@ -85,22 +88,65 @@ body {
   background: radial-gradient(40% 50% at 30% 40%, rgba(125, 211, 252, 0.18), transparent 70%);
 }
 .hero-glow.glow-go {
+  opacity: 0.55;
   background: radial-gradient(50% 60% at 30% 40%, rgba(74, 222, 128, 0.30), transparent 70%),
               radial-gradient(40% 50% at 80% 60%, rgba(125, 211, 252, 0.18), transparent 70%);
 }
-.hero-glow.glow-caution {
-  background: radial-gradient(50% 60% at 30% 40%, rgba(251, 191, 36, 0.28), transparent 70%),
-              radial-gradient(40% 50% at 80% 60%, rgba(248, 113, 113, 0.16), transparent 70%);
+.hero-glow.glow-light {
+  opacity: 0.30;
+  background: radial-gradient(50% 60% at 30% 40%, rgba(251, 191, 36, 0.22), transparent 70%),
+              radial-gradient(40% 50% at 80% 60%, rgba(125, 211, 252, 0.10), transparent 70%);
 }
-.hero-glow.glow-nogo {
+.hero-glow.glow-heavy {
+  opacity: 0.55;
   background: radial-gradient(50% 60% at 30% 40%, rgba(248, 113, 113, 0.32), transparent 70%),
               radial-gradient(40% 50% at 80% 60%, rgba(168, 85, 247, 0.18), transparent 70%);
 }
 
-/* =================== Verdict color states =================== */
-.verdict-go      { color: var(--go);      text-shadow: 0 0 60px rgba(74, 222, 128, 0.35); }
-.verdict-caution { color: var(--caution); text-shadow: 0 0 60px rgba(251, 191, 36, 0.35); }
-.verdict-nogo    { color: var(--nogo);    text-shadow: 0 0 60px rgba(248, 113, 113, 0.35); }
+/* =================== Verdict word — tiered hierarchy ===================
+   GO  → max impact: 9xl, font-black, full glow
+   HEAVY CAUTION → max impact: 9xl, font-black, full glow (same authority,
+                   just less absolutist than the retired NO-GO)
+   LIGHT CAUTION → murmurs: 8xl on desktop / 6xl on mobile, font-semibold,
+                   reduced glow opacity, looser letter-spacing for a calmer feel
+   The base .verdict-word holds the layout-invariant rules; per-tier classes
+   redefine size, weight, glow and tracking.                                 */
+.verdict-word {
+  line-height: 1;
+  user-select: none;
+  font-size: 4.5rem;            /* text-7xl baseline for skeleton state */
+  font-weight: 900;
+  letter-spacing: -0.06em;
+}
+@media (min-width: 640px) {
+  .verdict-word { font-size: 8rem; } /* text-9xl */
+}
+.verdict-go {
+  color: var(--go);
+  text-shadow: 0 0 60px rgba(74, 222, 128, 0.35);
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  font-size: 4.5rem;
+}
+.verdict-heavy {
+  color: var(--nogo);
+  text-shadow: 0 0 60px rgba(248, 113, 113, 0.35);
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  font-size: 4.5rem;
+}
+.verdict-light {
+  color: var(--caution);
+  text-shadow: 0 0 36px rgba(251, 191, 36, 0.22);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-size: 3.75rem; /* text-6xl */
+}
+@media (min-width: 640px) {
+  .verdict-go    { font-size: 8rem; }   /* text-9xl */
+  .verdict-heavy { font-size: 8rem; }   /* text-9xl */
+  .verdict-light { font-size: 6rem; }   /* text-8xl — ~75% visual weight */
+}
 .verdict-pending { color: var(--ink-30); }
 
 /* =================== Skeleton shimmer =================== */
@@ -250,8 +296,203 @@ body {
   text-transform: uppercase;
 }
 .pill-go      { background: rgba(74, 222, 128, 0.15);  color: var(--go);      border: 1px solid rgba(74, 222, 128, 0.30); }
-.pill-caution { background: rgba(251, 191, 36, 0.15);  color: var(--caution); border: 1px solid rgba(251, 191, 36, 0.30); }
-.pill-nogo    { background: rgba(248, 113, 113, 0.15); color: var(--nogo);    border: 1px solid rgba(248, 113, 113, 0.30); }
+/* LIGHT_CAUTION pill is intentionally less saturated than GO/HEAVY —
+   softer fill + lower-contrast border to feel calmer. */
+.pill-light   { background: rgba(251, 191, 36, 0.10);  color: var(--caution); border: 1px solid rgba(251, 191, 36, 0.22); letter-spacing: 0.18em; }
+.pill-heavy   { background: rgba(248, 113, 113, 0.15); color: var(--nogo);    border: 1px solid rgba(248, 113, 113, 0.30); }
+
+/* Window-card accent glow per tier (matches .acc-* class on the card root) */
+.window-card.acc-light { --accent-glow: rgba(251, 191, 36, 0.14); }
+.window-card.acc-heavy { --accent-glow: rgba(248, 113, 113, 0.22); }
+
+/* =================== BEST badge (tennis-window) ===================
+   Sits in the top-right of the window card matching tomorrow.best_window.label.
+   Subtle palm-green, uppercase, tiny check icon. */
+.best-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--go);
+  background: rgba(74, 222, 128, 0.10);
+  border: 1px solid rgba(74, 222, 128, 0.30);
+  box-shadow: 0 0 18px rgba(74, 222, 128, 0.15);
+}
+.best-badge svg {
+  width: 10px;
+  height: 10px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* =================== Hero subtitle pills ===================
+   Glass micro-pills. Wrap on mobile, never break layout. Each pill is
+   conditionally rendered by app.js — empty data → no pill. */
+.hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 28px;
+}
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink-70);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  white-space: nowrap;
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+  position: relative;
+}
+.hero-pill.skeleton {
+  width: 132px;
+  height: 26px;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.hero-pill .pill-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.85;
+  flex: 0 0 auto;
+}
+.hero-pill strong {
+  color: var(--ink-100);
+  font-weight: 600;
+}
+.hero-pill[data-tone="amber"]    { color: var(--caution); background: rgba(251, 191, 36, 0.08);  border-color: rgba(251, 191, 36, 0.22); }
+.hero-pill[data-tone="green"]    { color: var(--go);      background: rgba(74, 222, 128, 0.08);  border-color: rgba(74, 222, 128, 0.22); }
+.hero-pill[data-tone="coral"]    { color: var(--nogo);    background: rgba(248, 113, 113, 0.08); border-color: rgba(248, 113, 113, 0.22); }
+.hero-pill[data-tone="slate"]    { color: var(--ink-70);  background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.10); }
+.hero-pill[title]:hover          { background: rgba(255, 255, 255, 0.08); }
+
+/* =================== Chart legend pills =================== */
+.chart-legend {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.chart-legend-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-70);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+}
+.chart-legend .legend-label { color: var(--ink-100); font-weight: 600; }
+.chart-legend .legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 6px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.swatch-hrrr      { background: #7dd3fc; }
+.swatch-aifs      { background: transparent;
+                    background-image: linear-gradient(90deg, #c084fc 0 4px, transparent 4px 8px);
+                    background-size: 8px 6px;
+                    background-repeat: repeat-x;
+                    background-position: 0 50%; }
+.swatch-consensus { background: linear-gradient(180deg, rgba(125, 211, 252, 0.85), rgba(125, 211, 252, 0.15)); }
+.swatch-disagree  { background: linear-gradient(180deg, rgba(251, 191, 36, 0.7), rgba(251, 191, 36, 0.1)); }
+
+/* Little (?) help button + popover */
+.legend-help {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ink-50);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
+}
+.legend-help:hover, .legend-help[aria-expanded="true"] {
+  color: var(--ink-100);
+  background: rgba(255, 255, 255, 0.08);
+}
+.legend-help svg { width: 14px; height: 14px; }
+.legend-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: 280px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-70);
+  background: rgba(11, 29, 58, 0.96);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 30;
+}
+/* Show on hover (desktop) — pointer:fine ensures we don't fire on touch */
+@media (hover: hover) and (pointer: fine) {
+  .chart-legend-pill:hover .legend-popover { opacity: 1; transform: translateY(0); pointer-events: auto; }
+}
+/* Click-toggled (tap-friendly) — JS sets aria-expanded on the button */
+.legend-help[aria-expanded="true"] + .legend-popover { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+/* =================== Retry button (matches refresh-btn) =================== */
+.retry-btn { -webkit-tap-highlight-color: transparent; }
+.retry-btn:disabled { opacity: 0.7; cursor: progress; }
+.retry-btn.is-refreshing .refresh-icon {
+  animation: spin 600ms linear infinite;
+  transform-origin: 50% 50%;
+}
+
+/* =================== Error glyph =================== */
+.error-glyph {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--nogo);
+  background: rgba(248, 113, 113, 0.10);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+.error-glyph svg { width: 24px; height: 24px; }
 
 /* =================== Animations =================== */
 @keyframes fadeUp {
@@ -474,8 +715,11 @@ body {
   .bg-stage { animation: none; }
   .skeleton::after { animation: none; }
   .anim-scale-in, .anim-fade-up, .anim-slide-in, .how-card { animation: none; }
-  .refresh-btn.is-refreshing .refresh-icon { animation: none; }
+  .refresh-btn.is-refreshing .refresh-icon,
+  .retry-btn.is-refreshing .refresh-icon { animation: none; }
   .radar-marker::after { animation: none; }
+  .hero-glow { transition: none; }
+  .legend-popover { transition: none; }
 }
 
 /* =================== Small refinements =================== */

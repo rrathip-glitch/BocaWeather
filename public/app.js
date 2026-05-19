@@ -53,16 +53,29 @@
 
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
+  // Minimal HTML escape — used wherever backend strings flow into innerHTML
+  // (best_window.label, first_rain_hour_local, etc.). Belt-and-suspenders;
+  // these fields are server-generated, but never trust strings going into HTML.
+  const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+  const escapeAttr = (s) => escapeHtml(s);
+
+  // Verdict tiers (backend): GO | LIGHT_CAUTION | HEAVY_CAUTION
+  // Tier class drives CSS hierarchy: verdict-{go|light|heavy}, glow-{go|light|heavy},
+  // window-card.acc-{go|light|heavy}, pill-{go|light|heavy}.
+  // Legacy values (CAUTION, NO_GO) are mapped for forward-safety during the
+  // backend rollout, but the canonical tiers above are what render in production.
   const verdictClass = (v) => {
     if (v === 'GO') return 'go';
-    if (v === 'NO_GO' || v === 'NO-GO') return 'nogo';
-    return 'caution';
+    if (v === 'HEAVY_CAUTION' || v === 'NO_GO' || v === 'NO-GO') return 'heavy';
+    return 'light'; // LIGHT_CAUTION + legacy CAUTION
   };
 
   const verdictLabel = (v) => {
     if (v === 'GO') return 'GO';
-    if (v === 'NO_GO' || v === 'NO-GO') return 'NO-GO';
-    return 'CAUTION';
+    if (v === 'HEAVY_CAUTION' || v === 'NO_GO' || v === 'NO-GO') return 'HEAVY CAUTION';
+    return 'CAUTION'; // LIGHT_CAUTION renders as just "CAUTION"
   };
 
   // WMO weathercode → emoji
@@ -164,10 +177,12 @@
     const vClass = verdictClass(t.verdict);
     const vLabel = verdictLabel(t.verdict);
 
-    // Verdict text
+    // Verdict word — tier-specific size/weight/glow handled in styles.css via
+    // .verdict-{go|light|heavy}. We keep the class list minimal here so the
+    // CSS owns the visual hierarchy.
     const verdictEl = $('#verdict');
     verdictEl.textContent = vLabel;
-    verdictEl.className = `font-black leading-none tracking-tightest text-7xl sm:text-9xl select-none verdict-${vClass} anim-scale-in`;
+    verdictEl.className = `verdict-word verdict-${vClass} anim-scale-in`;
 
     // Glow
     const glow = $('#hero-glow');
@@ -188,6 +203,9 @@
     reasonEl.textContent = t.verdict_reason || '';
     reasonEl.classList.add('anim-fade-up');
     reasonEl.style.setProperty('animation-delay', '60ms');
+
+    // Subtitle pills (first rain · best window · wind · confidence)
+    renderHeroPills(t);
 
     // Agreement chip
     renderAgreementChip(t);
@@ -217,13 +235,82 @@
     }
   }
 
+  // ---- Hero subtitle pills ----
+  // Renders up to 4 glass micro-pills below verdict_reason:
+  //   1. First rain (when first_rain_hour_local is set)
+  //   2. Best window (when best_window is non-null) — green if best is GO, amber otherwise
+  //   3. Wind peak (always when wind_max_mph is non-null)
+  //   4. Forecast confidence (always — color tracks HIGH/MODERATE/LOW)
+  // Pills are skipped silently when their data is missing so the row never
+  // shows empty placeholders post-render.
+  function renderHeroPills(t) {
+    const host = $('#hero-pills');
+    if (!host) return;
+
+    const confLevel = (t.confidence || '').toUpperCase();
+    const confTone  = confLevel === 'HIGH' ? 'green'
+                    : confLevel === 'LOW'  ? 'coral'
+                    : 'amber';
+    const confLabel = confLevel ? confLevel.charAt(0) + confLevel.slice(1).toLowerCase() : 'Unknown';
+
+    const bestVerdictClass = t.best_window ? verdictClass(t.best_window.verdict) : null;
+    const bestTone = bestVerdictClass === 'go' ? 'green'
+                   : bestVerdictClass === 'heavy' ? 'coral'
+                   : 'amber';
+
+    const pills = [];
+
+    if (t.first_rain_hour_local) {
+      pills.push({
+        tone: 'amber',
+        title: 'Earliest hour when meaningful rain becomes likely.',
+        html: `<span class="pill-dot"></span><span>Rain begins ~<strong>${escapeHtml(t.first_rain_hour_local)}</strong></span>`,
+      });
+    }
+
+    if (t.best_window && t.best_window.label) {
+      const lbl = escapeHtml(t.best_window.label);
+      const peak = (t.best_window.max_rain_prob != null)
+        ? ` · ${Math.round(t.best_window.max_rain_prob)}%`
+        : '';
+      pills.push({
+        tone: bestTone,
+        title: 'Lowest-risk slot to play tomorrow.',
+        html: `<span class="pill-dot"></span><span>Best window: <strong>${lbl}</strong>${peak}</span>`,
+      });
+    }
+
+    if (t.wind_max_mph != null) {
+      pills.push({
+        tone: 'slate',
+        title: 'Peak forecast wind during tennis hours.',
+        html: `<span class="pill-dot"></span><span>Wind: <strong>${Math.round(t.wind_max_mph)} mph</strong> peak</span>`,
+      });
+    }
+
+    pills.push({
+      tone: confTone,
+      title: t.confidence_note || 'How confident the models are in this verdict.',
+      html: `<span class="pill-dot"></span><span>Forecast confidence: <strong>${confLabel}</strong></span>`,
+    });
+
+    host.innerHTML = pills.map((p, i) => `
+      <span class="hero-pill anim-fade-up" data-tone="${p.tone}" title="${escapeAttr(p.title)}" style="animation-delay:${80 + i * 60}ms;">
+        ${p.html}
+      </span>
+    `).join('');
+  }
+
+  // Stats row — peak rain, wind peak, high, low. Wind replaced "mean rain"
+  // because mean is buried in the chart already and wind directly affects
+  // tennis playability.
   function renderHeroStats(t) {
     const grid = $('#hero-stats');
     const stats = [
-      { label: 'Max rain prob.', value: `${Math.round(t.rain_probability_max ?? 0)}%`, tint: rainTint(t.rain_probability_max) },
-      { label: 'Mean rain prob.', value: `${Math.round(t.rain_probability_mean ?? 0)}%`, tint: rainTint(t.rain_probability_mean) },
-      { label: 'Total precip.', value: `${(t.precipitation_sum_in ?? 0).toFixed(2)}″`, tint: null },
-      { label: 'High / Low', value: `${Math.round(t.temperature_high_f)}° / ${Math.round(t.temperature_low_f)}°`, tint: null },
+      { label: 'Peak rain', value: `${Math.round(t.rain_probability_max ?? 0)}%`, tint: rainTint(t.rain_probability_max) },
+      { label: 'Wind (peak)', value: t.wind_max_mph != null ? `${Math.round(t.wind_max_mph)} mph` : '—', tint: null },
+      { label: 'High', value: `${Math.round(t.temperature_high_f)}°`, tint: null },
+      { label: 'Low',  value: `${Math.round(t.temperature_low_f)}°`,  tint: null },
     ];
     grid.innerHTML = stats.map((s, i) => `
       <div class="stat anim-fade-up" style="--i:${i + 3}; animation-delay: ${(i + 3) * 60}ms;">
@@ -273,15 +360,24 @@
       grid.innerHTML = '<div class="col-span-full text-sm text-ink-50">No tennis windows available.</div>';
       return;
     }
+    const bestLabel = data.tomorrow && data.tomorrow.best_window
+      ? data.tomorrow.best_window.label
+      : null;
+
     grid.classList.add('stagger');
     grid.innerHTML = windows.map((w, i) => {
       const vc = verdictClass(w.verdict);
       const vl = verdictLabel(w.verdict);
+      const isBest = bestLabel && w.label === bestLabel;
+      const bestBadge = isBest
+        ? `<span class="best-badge" title="Lowest-risk window tomorrow"><svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="3 8.5 6.5 12 13 5"/></svg>Best</span>`
+        : '';
       return `
         <article class="window-card acc-${vc} anim-fade-up" style="--i:${i}; animation-delay:${i * 60}ms;">
+          ${bestBadge}
           <div class="flex items-start justify-between gap-2 mb-3">
             <div>
-              <div class="text-xs uppercase tracking-[0.18em] text-ink-50 font-semibold mb-1">${w.label}</div>
+              <div class="text-xs uppercase tracking-[0.18em] text-ink-50 font-semibold mb-1">${escapeHtml(w.label)}</div>
               <div class="text-sm text-ink-70">${fmtTimeRange(w.start, w.end)}</div>
             </div>
             <span class="verdict-pill pill-${vc}">${vl}</span>
@@ -290,7 +386,7 @@
             <div class="text-4xl font-bold text-ink-100 tabular-nums">${Math.round(w.max_rain_prob)}<span class="text-lg text-ink-50 font-medium">%</span></div>
             <div class="text-[11px] text-ink-50 uppercase tracking-wider">peak rain</div>
           </div>
-          <p class="text-xs sm:text-sm text-ink-70 leading-snug">${w.reason || ''}</p>
+          <p class="text-xs sm:text-sm text-ink-70 leading-snug">${escapeHtml(w.reason || '')}</p>
         </article>
       `;
     }).join('');
@@ -365,6 +461,122 @@
             ctx.fillRect(cx - 1, chartArea.top, 2, 6);
           }
         });
+        ctx.restore();
+      }
+    };
+
+    // -------- Sunrise / sunset vertical markers --------
+    // Subtle dotted verticals at the sunrise & sunset boundaries that fall
+    // inside the visible 36-hour window. Amber for sunrise, indigo for sunset.
+    // X position is interpolated between the two surrounding hour buckets so
+    // the line lands at the correct fractional offset (sunrise rarely sits on
+    // an exact wall-clock hour).
+    const sunMarkers = [];
+    if (data.tomorrow) {
+      const first = new Date(hours[0].time).getTime();
+      const last  = new Date(hours[hours.length - 1].time).getTime();
+      const within = (ms) => ms >= first && ms <= last;
+      const interpIndex = (ms) => {
+        // Linear interpolation between the two surrounding hour timestamps.
+        for (let i = 0; i < hours.length - 1; i++) {
+          const t0 = new Date(hours[i].time).getTime();
+          const t1 = new Date(hours[i + 1].time).getTime();
+          if (ms >= t0 && ms <= t1) {
+            return i + (ms - t0) / Math.max(1, t1 - t0);
+          }
+        }
+        return null;
+      };
+      const sr = new Date(data.tomorrow.sunrise).getTime();
+      const ss = new Date(data.tomorrow.sunset).getTime();
+      if (within(sr)) {
+        const fi = interpIndex(sr);
+        if (fi != null) sunMarkers.push({ fIndex: fi, color: 'rgba(251, 191, 36, 0.30)', label: 'SUNRISE' });
+      }
+      if (within(ss)) {
+        const fi = interpIndex(ss);
+        if (fi != null) sunMarkers.push({ fIndex: fi, color: 'rgba(129, 140, 248, 0.30)', label: 'SUNSET' });
+      }
+    }
+
+    const sunMarkersPlugin = {
+      id: 'sunMarkers',
+      afterDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !sunMarkers.length) return;
+        const xScale = scales.x;
+        ctx.save();
+        for (const m of sunMarkers) {
+          // Interpolate pixel x between bucket centers.
+          const lo = Math.floor(m.fIndex);
+          const hi = Math.min(lo + 1, hours.length - 1);
+          const frac = m.fIndex - lo;
+          const x = xScale.getPixelForValue(lo) + (xScale.getPixelForValue(hi) - xScale.getPixelForValue(lo)) * frac;
+          ctx.strokeStyle = m.color;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([1, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, chartArea.top + 14);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // Tiny label
+          ctx.fillStyle = m.color.replace(/[\d.]+\)$/, '0.7)');
+          ctx.font = '600 9px Inter, system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillText(m.label, x, chartArea.top);
+        }
+        ctx.restore();
+      }
+    };
+
+    // -------- "NOW" vertical line --------
+    // Dashed white line at the current local time, with a tiny "NOW" label at
+    // the top of the plot area. The line uses the same interpolation pattern
+    // as the sunrise/sunset markers so it lands precisely between buckets
+    // when "now" sits mid-hour.
+    const nowPlugin = {
+      id: 'nowLine',
+      afterDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !hours.length) return;
+        const nowMs = Date.now();
+        const first = new Date(hours[0].time).getTime();
+        const last  = new Date(hours[hours.length - 1].time).getTime();
+        if (nowMs < first || nowMs > last) return;
+        let fIndex = null;
+        for (let i = 0; i < hours.length - 1; i++) {
+          const t0 = new Date(hours[i].time).getTime();
+          const t1 = new Date(hours[i + 1].time).getTime();
+          if (nowMs >= t0 && nowMs <= t1) {
+            fIndex = i + (nowMs - t0) / Math.max(1, t1 - t0);
+            break;
+          }
+        }
+        if (fIndex == null) return;
+        const xScale = scales.x;
+        const lo = Math.floor(fIndex);
+        const hi = Math.min(lo + 1, hours.length - 1);
+        const frac = fIndex - lo;
+        const x = xScale.getPixelForValue(lo) + (xScale.getPixelForValue(hi) - xScale.getPixelForValue(lo)) * frac;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(240, 246, 252, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top + 14);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // "NOW" label — small uppercase chip at the top of the line
+        ctx.fillStyle = 'rgba(240, 246, 252, 0.85)';
+        ctx.font = '700 9.5px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('NOW', x, chartArea.top);
         ctx.restore();
       }
     };
@@ -461,7 +673,7 @@
               afterBody: (items) => {
                 if (!items.length) return '';
                 const h = hours[items[0].dataIndex];
-                return h.disagreement ? '\n⚠ Models disagree this hour' : '';
+                return h.disagreement ? '\nModels disagree this hour' : '';
               }
             }
           }
@@ -493,7 +705,7 @@
           },
         },
       },
-      plugins: [nightPlugin, disagreePlugin],
+      plugins: [nightPlugin, disagreePlugin, sunMarkersPlugin, nowPlugin],
     });
   }
 
@@ -820,11 +1032,51 @@
   }
 
   // ============================================================
-  // Retry button
+  // Retry button — mirrors the header refresh-button UX: disable + spin
+  // the icon while a retry is in flight, toast on outcome.
   // ============================================================
   function wireRetry() {
     const btn = $('#retry-button');
-    if (btn) btn.addEventListener('click', () => { hideError(); loadForecast(); });
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add('is-refreshing');
+      try {
+        await loadForecast();
+        showToast('Updated', 'ok');
+      } catch (err) {
+        showToast('Retry failed', 'error');
+      } finally {
+        btn.classList.remove('is-refreshing');
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ============================================================
+  // Chart legend popovers — (?) buttons next to HRRR/AIFS labels.
+  // Click toggles aria-expanded which CSS uses to show the popover.
+  // Hover-only behavior on desktop is pure-CSS (no JS needed).
+  // Outside-click and Escape both dismiss.
+  // ============================================================
+  function wireLegendPopovers() {
+    const buttons = $$('.legend-help');
+    if (!buttons.length) return;
+    const closeAll = () => buttons.forEach(b => b.setAttribute('aria-expanded', 'false'));
+    buttons.forEach(btn => {
+      btn.setAttribute('aria-expanded', 'false');
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wasOpen = btn.getAttribute('aria-expanded') === 'true';
+        closeAll();
+        btn.setAttribute('aria-expanded', wasOpen ? 'false' : 'true');
+      });
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.legend-help')) closeAll();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
   }
 
   // ============================================================
@@ -834,6 +1086,7 @@
     wireHowItWorks();
     wireRetry();
     wireRefreshButton();
+    wireLegendPopovers();
     loadForecast();
     scheduleRefresh();
     initRadar();

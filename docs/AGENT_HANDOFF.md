@@ -21,7 +21,7 @@ In this order:
 3. `server.js` — Express bootstrap. Small file. Mounts the routes, serves `/public`, listens on `process.env.PORT || 3000`.
 4. `lib/config.js` — Single source of truth for location, timezone, cache TTL, model list.
 5. `lib/openMeteo.js` — Open-Meteo client. Builds the URL with both models, normalizes the response.
-6. `lib/forecast.js` — Threshold logic. Verdict, windows, disagreement flag.
+6. `lib/forecast.js` — Threshold logic. Verdict, windows, disagreement flag. **The `VERDICT` enum at the top of this file is the source of truth for tier names** (`HEAVY_CAUTION`, `LIGHT_CAUTION`, `GO`); every other reference in the codebase and docs must match it.
 7. `lib/cache.js` — Trivial TTL cache.
 8. `public/index.html` and `public/app.js` — Frontend. Tailwind + Chart.js, no framework, no build step.
 
@@ -37,6 +37,10 @@ These are load-bearing decisions. If you change any of them, do so deliberately 
 4. **Cache TTL is 10 minutes. Do not drop below 5 minutes.** That is the Open-Meteo etiquette floor; going below it risks rate limits and is rude to a free service.
 5. **The "disagreement" visualization is a feature, not noise.** When HRRR and AIFS disagree, the UI shows a chip or shaded band. A future agent may be tempted to "clean it up" or hide it behind an advanced toggle. Do not. That disagreement is the user's accuracy edge over single-model apps.
 6. **`/api/health` does not call Open-Meteo.** It only reports process liveness. Routing it through the upstream would let an Open-Meteo outage trigger Railway restarts that flush our cache.
+7. **Verdict tier names are `HEAVY_CAUTION` / `LIGHT_CAUTION` / `GO`. Do NOT reintroduce `NO_GO` or "Skip it" wording — the user specifically rejected absolutist phrasing. Heavy caution is strong but not a hard "don't play" call.** Reason strings follow fixed prefixes: "Strong caution: …" for `HEAVY_CAUTION`, "Heads up: …" for `LIGHT_CAUTION`, "Looks good: …" for `GO`.
+8. **`LIGHT_CAUTION` must present visibly softer than `HEAVY_CAUTION` and `GO`. If you change the hero typography, preserve that hierarchy.** Both end tiers shout (large weight, full glow); the middle tier murmurs (smaller font, lighter weight, lower-opacity glow). Equalizing the visual weight would push `LIGHT_CAUTION` back toward the absolutist reading the rename in invariant 7 was meant to walk away from.
+9. **The tennis-accuracy fields on `tomorrow` are part of the API contract. Removing them silently breaks the frontend.** The fields are `wind_max_mph`, `wind_mean_mph`, `first_rain_time`, `first_rain_hour_local`, `best_window`, `confidence`, and `confidence_note`. If you need to deprecate one, coordinate the change across `lib/forecast.js`, `public/app.js`, `docs/API.md`, `docs/BACKEND.md`, and `docs/FRONTEND.md` in the same commit.
+10. **`best_window` may be `null` when all four windows are `HEAVY_CAUTION`. The frontend handles `null` — don't fake a window to avoid `null`.** That `null` is meaningful product information ("there is no clean window tomorrow"); inventing a fake "best" recommends play on a day the model says is bad.
 
 ## 5. Common tasks
 
@@ -65,11 +69,20 @@ If you want to support multiple locations simultaneously, that is a larger chang
 2. **Same commit:** update [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) so the numbers in code and docs match.
 3. Consider whether the user-facing copy needs to change.
 
+Note on tier **names**: the current names (`HEAVY_CAUTION` / `LIGHT_CAUTION` / `GO`) are deliberately non-absolutist — see invariant 7 above. If you rename them again, the rename must propagate, in the same commit, to:
+
+- `lib/forecast.js` (`VERDICT` enum, classification logic, reason-string prefixes)
+- `server.js` (no current references expected, but verify with grep)
+- `public/app.js` (verdict label map, color map, font-size/weight map)
+- All four docs: [DESIGN.md](./DESIGN.md), [API.md](./API.md), [BACKEND.md](./BACKEND.md), [FRONTEND.md](./FRONTEND.md)
+
+A half-renamed app where the API returns one label and the UI expects another will appear to "work" until the verdict happens to be the renamed tier.
+
 ## 6. Known limitations and future work
 
 - **Single location.** See "Add a new location" above. Multi-location requires a frontend selector and a routing decision.
 - **No push notifications.** No accounts, no email, no SMS. Adding any of these is a substantial architectural shift (state, secrets, abuse handling).
-- **No nowcasting.** Deliberate — see [DESIGN.md section 5](./DESIGN.md#5-why-no-nowcasting-in-this-app). If you want a "is it raining right now" view, integrate radar tiles ([RainViewer](https://www.rainviewer.com/) has a free tile API) as a clearly separated component. Do not try to make model forecasts answer the nowcast question.
+- **No nowcasting.** Deliberate — see [DESIGN.md section 7](./DESIGN.md#7-why-no-nowcasting-in-this-app). If you want a "is it raining right now" view, integrate radar tiles ([RainViewer](https://www.rainviewer.com/) has a free tile API) as a clearly separated component. Do not try to make model forecasts answer the nowcast question.
 - **No historical accuracy tracking.** This would be valuable for re-tuning the verdict thresholds against ground truth, but it requires a database. Out of scope for now.
 - **No tests.** The app is small enough that this has not bitten us, but a few unit tests around `lib/forecast.js` (verdict logic, window slicing, disagreement flag) would be cheap and worthwhile.
 - **No retry on Open-Meteo failure.** A single transient upstream hiccup will show stale-or-error UI for up to one cache cycle. A small retry-with-backoff in `lib/openMeteo.js` would be a nice improvement.

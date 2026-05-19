@@ -4,7 +4,7 @@ Tennis-focused, dual-model rain forecasts for the Santa Barbara community in Boc
 
 ## What it does
 
-BocaWeather answers one question: "Can I play tennis tomorrow, and if so, when?" It pulls hourly precipitation forecasts from two independent weather models (NOAA HRRR and ECMWF AIFS) for the Santa Barbara community in Boca Raton and converts them into a simple GO / CAUTION / NO_GO verdict plus per-window guidance for morning, midday, afternoon, and evening play. By comparing the two models against each other, the app surfaces honest forecast uncertainty instead of pretending a single model is gospel.
+BocaWeather answers one question: "Can I play tennis tomorrow, and if so, when?" It pulls hourly precipitation forecasts from two independent weather models (NOAA HRRR and ECMWF AIFS) for the Santa Barbara community in Boca Raton and converts them into a simple GO / CAUTION / HEAVY CAUTION verdict plus per-window guidance for morning, midday, afternoon, and evening play. Alongside the verdict it shows wind, first-rain time, best window of the day, and a forecast-confidence rating derived from model agreement. By comparing the two models against each other, the app surfaces honest forecast uncertainty instead of pretending a single model is gospel.
 
 ## Why dual-model?
 
@@ -62,7 +62,7 @@ BocaWeather/
 
 Two endpoints. Full schema in [docs/API.md](./docs/API.md).
 
-- `GET /api/forecast` — Returns location, tomorrow verdict (GO / CAUTION / NO_GO), per-window guidance, and full hourly arrays with both models' probabilities and disagreement flags.
+- `GET /api/forecast` — Returns location, tomorrow verdict (GO / LIGHT_CAUTION / HEAVY_CAUTION) plus tennis-accuracy fields (wind, first rain time, best window, confidence), per-window guidance, and full hourly arrays with both models' probabilities and disagreement flags.
 - `GET /api/health` — Returns `{ ok: true, uptime: <seconds> }`.
 
 ## Configuration
