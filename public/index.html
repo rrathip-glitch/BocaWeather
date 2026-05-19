@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1d3a" />
+  <meta name="description" content="Premium tomorrow-rain forecast for tennis in Santa Barbara, Boca Raton. HRRR + AIFS model consensus with honest uncertainty signals." />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Tomorrow's Tennis Forecast · Santa Barbara, Boca Raton" />
+  <meta property="og:description" content="Will I be playing tomorrow? Confident rain predictions from HRRR + AIFS model consensus, with honest uncertainty signals." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/favicon.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <title>Tomorrow's Tennis · Santa Barbara, Boca Raton</title>
+
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'] },
+          colors: {
+            ink: { 100: '#f0f6fc', 70: 'rgba(240,246,252,0.7)', 50: 'rgba(240,246,252,0.5)', 30: 'rgba(240,246,252,0.3)' },
+            ocean: { 900: '#0b1d3a', 700: '#0e3a5c', 500: '#15577a' },
+            go: '#4ade80',
+            caution: '#fbbf24',
+            nogo: '#f87171',
+          },
+          letterSpacing: { tightest: '-0.06em' },
+          boxShadow: {
+            glass: '0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 40px rgba(0,0,0,0.30)',
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="font-sans text-ink-100 min-h-screen antialiased selection:bg-white/20">
+  <!-- Animated ocean gradient background -->
+  <div class="bg-stage" aria-hidden="true"></div>
+  <div class="bg-noise" aria-hidden="true"></div>
+
+  <main class="relative z-10 mx-auto w-full max-w-6xl px-5 sm:px-8 pt-6 pb-24">
+
+    <!-- ====================== HEADER + NOW STRIP ====================== -->
+    <header class="flex items-center justify-between gap-3 mb-6 sm:mb-10">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl grid place-items-center shadow-glass">
+          <img src="/favicon.svg" alt="" class="h-7 w-7" />
+        </div>
+        <div class="leading-tight">
+          <div class="text-[10px] sm:text-[11px] uppercase tracking-[0.22em] text-ink-50 font-semibold">Santa Barbara · Boca Raton</div>
+          <div class="text-sm sm:text-base font-semibold text-ink-100">Tomorrow's Tennis Forecast</div>
+        </div>
+      </div>
+
+      <!-- Right-now strip -->
+      <div id="now-strip" class="hidden sm:flex items-center gap-4 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-xl text-xs">
+        <div class="flex items-center gap-1.5">
+          <span class="text-ink-50">Now</span>
+          <span id="now-temp" class="font-semibold text-ink-100">—</span>
+        </div>
+        <span class="h-3 w-px bg-white/15"></span>
+        <div class="flex items-center gap-1.5">
+          <span class="text-ink-50">Rain</span>
+          <span id="now-rain" class="font-semibold text-ink-100">—</span>
+        </div>
+        <span class="h-3 w-px bg-white/15"></span>
+        <div class="flex items-center gap-1.5">
+          <span id="now-agree-dot" class="h-1.5 w-1.5 rounded-full bg-white/30"></span>
+          <span id="now-agree-text" class="text-ink-70">Loading</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ====================== HERO VERDICT ====================== -->
+    <section id="hero" class="relative mb-10 sm:mb-14">
+      <!-- Glow plate -->
+      <div id="hero-glow" class="hero-glow" aria-hidden="true"></div>
+
+      <div class="relative rounded-3xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl shadow-glass px-6 sm:px-12 py-10 sm:py-14 overflow-hidden">
+        <div class="flex flex-col items-start gap-5">
+          <!-- Date small caps -->
+          <div id="hero-date" class="text-[11px] sm:text-xs uppercase tracking-[0.28em] text-ink-70 font-semibold">
+            <span class="skeleton skeleton-text inline-block w-48 h-3"></span>
+          </div>
+
+          <!-- The massive verdict -->
+          <h1 id="verdict" class="font-black leading-none tracking-tightest text-7xl sm:text-9xl select-none verdict-pending">
+            <span class="skeleton skeleton-text inline-block w-72 sm:w-96 h-20 sm:h-32"></span>
+          </h1>
+
+          <!-- Reason -->
+          <p id="verdict-reason" class="text-base sm:text-xl text-ink-70 max-w-2xl leading-snug font-light">
+            <span class="skeleton skeleton-text inline-block w-80 h-4"></span>
+          </p>
+
+          <!-- Model agreement chip -->
+          <div id="agreement-chip" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-white/5 border border-white/10 text-ink-70">
+            <span class="h-1.5 w-1.5 rounded-full bg-white/30"></span>
+            <span>Loading model agreement…</span>
+          </div>
+
+          <!-- Quick stats row -->
+          <div id="hero-stats" class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6 mt-4 w-full">
+            <!-- populated by app.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================== TENNIS WINDOWS ====================== -->
+    <section class="mb-10 sm:mb-14" aria-labelledby="windows-heading">
+      <div class="flex items-end justify-between mb-4 sm:mb-5">
+        <h2 id="windows-heading" class="text-lg sm:text-xl font-semibold">Tennis windows</h2>
+        <div class="text-xs text-ink-50">Tomorrow · Eastern Time</div>
+      </div>
+      <div id="windows-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <!-- 4 skeleton placeholders -->
+        <div class="rounded-2xl h-40 skeleton"></div>
+        <div class="rounded-2xl h-40 skeleton"></div>
+        <div class="rounded-2xl h-40 skeleton"></div>
+        <div class="rounded-2xl h-40 skeleton"></div>
+      </div>
+    </section>
+
+    <!-- ====================== HOURLY CHART ====================== -->
+    <section class="mb-10 sm:mb-14" aria-labelledby="chart-heading">
+      <div class="flex items-end justify-between mb-4 sm:mb-5">
+        <div>
+          <h2 id="chart-heading" class="text-lg sm:text-xl font-semibold">Hour-by-hour rain probability</h2>
+          <p class="text-xs sm:text-sm text-ink-50 mt-0.5">Two independent models. Where they disagree, the forecast is uncertain — plan a backup.</p>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl shadow-glass p-4 sm:p-6">
+        <div class="chart-shell">
+          <canvas id="rain-chart" role="img" aria-label="Hour-by-hour rain probability for the next 36 hours from HRRR and AIFS models"></canvas>
+        </div>
+
+        <!-- Legend -->
+        <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div class="flex items-start gap-2">
+            <span class="mt-1 h-2 w-6 rounded-full bg-[#7dd3fc]"></span>
+            <div>
+              <div class="font-semibold text-ink-100">HRRR</div>
+              <div class="text-ink-50">NOAA high-resolution US model. Best for FL convective storms.</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="mt-1 h-2 w-6 rounded-full bg-[#c084fc]"></span>
+            <div>
+              <div class="font-semibold text-ink-100">AIFS</div>
+              <div class="text-ink-50">ECMWF's AI-driven global model. Good large-scale signal.</div>
+            </div>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="mt-1 h-2 w-6 rounded-full bg-caution"></span>
+            <div>
+              <div class="font-semibold text-ink-100">Disagreement</div>
+              <div class="text-ink-50">Vertical amber bands flag hours where the models diverge.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================== HOURLY DETAIL STRIP ====================== -->
+    <section class="mb-10 sm:mb-14" aria-labelledby="strip-heading">
+      <div class="flex items-end justify-between mb-4 sm:mb-5">
+        <h2 id="strip-heading" class="text-lg sm:text-xl font-semibold">Next 24 hours</h2>
+        <div class="text-xs text-ink-50">Scroll →</div>
+      </div>
+      <div class="rounded-2xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl shadow-glass p-3 sm:p-4">
+        <div id="hourly-strip" class="hourly-strip flex gap-2 sm:gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+          <!-- chips populated by app.js -->
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+          <div class="strip-chip skeleton"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================== ERROR STATE (hidden by default) ====================== -->
+    <section id="error-state" class="hidden mb-14">
+      <div class="rounded-2xl bg-nogo/10 border border-nogo/30 backdrop-blur-xl p-6 text-center">
+        <div class="text-3xl mb-2">⚠️</div>
+        <h3 class="text-lg font-semibold text-ink-100 mb-1">Couldn't load the forecast</h3>
+        <p id="error-message" class="text-sm text-ink-70 max-w-md mx-auto mb-4">The forecast service didn't respond. This can happen during model updates.</p>
+        <button id="retry-button" class="px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-sm font-medium transition">
+          Try again
+        </button>
+      </div>
+    </section>
+
+    <!-- ====================== FOOTER ====================== -->
+    <footer class="border-t border-white/10 pt-6 mt-8 text-xs text-ink-50">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div id="generated-info">Loading forecast…</div>
+          <div class="mt-1">
+            Data: <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline decoration-white/20 hover:decoration-white/60 text-ink-70">Open-Meteo</a>
+            · HRRR (NOAA) · AIFS (ECMWF)
+          </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <button id="how-it-works-btn" class="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-ink-70 hover:text-ink-100 transition">
+            How this works
+          </button>
+        </div>
+      </div>
+    </footer>
+
+    <!-- "How this works" popover -->
+    <div id="how-it-works" class="hidden fixed inset-0 z-50 grid place-items-center p-4 bg-ocean-900/70 backdrop-blur-md">
+      <div class="how-card relative max-w-lg w-full rounded-2xl bg-ocean-700/95 border border-white/15 shadow-glass p-6 sm:p-8 text-sm leading-relaxed text-ink-70">
+        <button id="how-close" aria-label="Close" class="absolute top-3 right-3 h-8 w-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-ink-70">×</button>
+        <h3 class="text-lg font-semibold text-ink-100 mb-3">How this forecast works</h3>
+        <p class="mb-3"><span class="text-ink-100 font-medium">Two models, one verdict.</span> We pull HRRR (NOAA's high-res convective model — sharp on Florida storms) and AIFS (ECMWF's AI global model). We compare them hour-by-hour.</p>
+        <p class="mb-3"><span class="text-ink-100 font-medium">When they agree, trust it.</span> When they disagree, the chart shows an amber band and the verdict softens to CAUTION. Disagreement is itself a forecast — your edge as a player is knowing the call is uncertain.</p>
+        <p class="mb-3"><span class="text-ink-100 font-medium">Verdict thresholds:</span> GO when max rain probability stays under 35%. CAUTION between 35–60% or when models disagree. NO-GO above 60% or with appreciable accumulation expected.</p>
+        <p class="text-ink-50"><span class="text-ink-70 font-medium">~60 minutes before play</span>, also pull up <a href="https://www.rainviewer.com" target="_blank" rel="noopener" class="underline decoration-white/20 hover:decoration-white/60 text-ink-70">RainViewer</a> or RadarScope to scan for individual convective cells — radar trumps models inside the 1-hour window.</p>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
