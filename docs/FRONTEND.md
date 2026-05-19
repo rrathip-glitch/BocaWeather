@@ -265,7 +265,7 @@ To swap:
 5. The animated background lives in `.bg-stage` (CSS file). Adjust the `radial-gradient` and `linear-gradient` colors there.
 6. The Chart.js line colors are hard-coded as `#7dd3fc` (HRRR) and `#c084fc` (AIFS) inside `renderHourlyChart()`. If they no longer harmonize, update them in `app.js`. The disagreement-band amber (`rgba(251, 191, 36, ...)`) and night-shade navy (`rgba(11, 29, 58, 0.35)`) are also in the chart plugins and should be matched to your new amber/dark.
 
-The `.verdict-{go,caution,nogo}` classes (in `styles.css`) handle the glow text-shadows and reference the CSS vars — no edit needed there beyond the `:root` block, provided you keep variable names identical.
+The `.verdict-{go,light,heavy}` classes (in `styles.css`) handle the per-tier font size / weight / glow and reference the CSS vars — no edit needed there beyond the `:root` block, provided you keep variable names identical.
 
 ## 3. How to add a new section
 
@@ -320,7 +320,7 @@ The frontend was developed against this representative payload. It matches the c
   "cached": true,
   "tomorrow": {
     "date": "2026-05-20",
-    "verdict": "CAUTION",
+    "verdict": "LIGHT_CAUTION",
     "verdict_reason": "Models disagree on afternoon convection (HRRR peaks at 68%, AIFS stays under 25%).",
     "rain_probability_max": 68,
     "rain_probability_mean": 27,
@@ -330,7 +330,18 @@ The frontend was developed against this representative payload. It matches the c
     "sunrise": "2026-05-20T10:31:00Z",
     "sunset": "2026-05-21T00:08:00Z",
     "model_agreement": "DISAGREE",
-    "uncertainty_note": "HRRR is firing scattered storms; AIFS is keeping it dry."
+    "uncertainty_note": "HRRR is firing scattered storms; AIFS is keeping it dry.",
+    "wind_max_mph": 14,
+    "wind_mean_mph": 9,
+    "first_rain_time": "2026-05-20T19:00:00Z",
+    "first_rain_hour_local": "3:00 PM",
+    "best_window": {
+      "label": "Morning",
+      "max_rain_prob": 12,
+      "verdict": "GO"
+    },
+    "confidence": "MODERATE",
+    "confidence_note": "Disagreement on the afternoon line lowers confidence to moderate; morning is firm."
   },
   "hourly": [
     {
@@ -388,7 +399,7 @@ The frontend was developed against this representative payload. It matches the c
       "label": "Afternoon",
       "start": "2026-05-20T18:00:00Z",
       "end": "2026-05-20T22:00:00Z",
-      "verdict": "NO_GO",
+      "verdict": "HEAVY_CAUTION",
       "max_rain_prob": 68,
       "reason": "HRRR fires a line of storms 3–6 PM; AIFS disagrees."
     },
@@ -396,7 +407,7 @@ The frontend was developed against this representative payload. It matches the c
       "label": "Evening",
       "start": "2026-05-20T22:00:00Z",
       "end": "2026-05-21T01:00:00Z",
-      "verdict": "CAUTION",
+      "verdict": "LIGHT_CAUTION",
       "max_rain_prob": 42,
       "reason": "Storms decaying but residual showers possible."
     }
@@ -410,6 +421,12 @@ The frontend was developed against this representative payload. It matches the c
 - `cached: true` → footer reads "cached" (else "fresh").
 - `rain_probability_hrrr` or `rain_probability_aifs` `null` → Chart.js `spanGaps: true` connects across the gap; the consensus bar still renders from `rain_probability_consensus`.
 - `tennis_windows` length `!== 4` → grid stretches; no crash, but copy assumes 4. If the backend changes the count, update the grid breakpoints in `index.html` and the explanatory copy.
+- `first_rain_hour_local` `null` → "Rain begins…" pill is omitted entirely; the subtitle row simply has one fewer pill.
+- `best_window` `null` → "Best window" pill is omitted **and** no BEST badge renders on any window card.
+- `wind_max_mph` `null` → both the Wind subtitle pill and the Wind stat tile fall back gracefully (pill skipped, stat shows `—`).
+- `confidence` always renders; if the value is missing or unrecognized, it falls back to "Unknown" with the neutral amber tone.
+- `verdict` legacy values (`CAUTION`, `NO_GO`, `NO-GO`) are mapped forward to `light` / `heavy` so a stale backend never breaks the render.
+- `tennis_windows[].verdict` legacy values are mapped the same way — both the pill color and the BEST-badge match key go through `verdictClass()`.
 - Fetch failure on first load → `#error-state` shows with a retry button. Fetch failure after a successful load → silent, last-good data retained.
 - `prefers-reduced-motion: reduce` → background gradient animation, shimmer, and entrance animations all disabled (handled in `styles.css`).
 
