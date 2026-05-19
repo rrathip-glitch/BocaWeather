@@ -515,7 +515,7 @@ body {
 
 /* =================== Per-window confidence tag ===================
    Small inline pill rendered at the bottom of each tennis-window card. Shows
-   how much HRRR and AIFS agree on THIS window's hours specifically (the
+   how much HRRR and IFS agree on THIS window's hours specifically (the
    day-level chip in the hero covers the whole tennis day; this is the
    window-scope equivalent). Lives in the natural document flow below the
    reason text so it cannot collide with the BEST badge / verdict pill in the
@@ -673,7 +673,7 @@ body {
   flex: 0 0 auto;
 }
 .swatch-hrrr      { background: #7dd3fc; }
-.swatch-aifs      { background: transparent;
+.swatch-ifs      { background: transparent;
                     background-image: linear-gradient(90deg, #c084fc 0 4px, transparent 4px 8px);
                     background-size: 8px 6px;
                     background-repeat: repeat-x;

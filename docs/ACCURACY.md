@@ -4,7 +4,7 @@ How accurate is this app, why, and where does the ceiling sit at zero cost? This
 
 ## 1. TL;DR
 
-BocaWeather predicts rain risk for tennis at one fixed location in Boca Raton, FL by fusing two independent operational weather models — NOAA HRRR (3 km, hourly, radar-assimilating) and ECMWF AIFS (0.25°, AI-based, global) — through [Open-Meteo's free API](https://open-meteo.com/). For the **18-to-48-hour next-day tennis decision**, this is approximately the best free configuration available in 2026: HRRR is the operational gold standard for short-range CONUS convective forecasting, and AIFS is a genuinely independent learned model with different error modes. The honest ceiling at zero cost is that no public free model resolves a 5–15 km Florida pulse-storm with confidence at the city-block scale — that is a fundamental limit of the science, not of this app. Inside the 60-minute go/no-go window, the radar overlay (RainViewer past frames) is the only honest source of signal.
+BocaWeather predicts rain risk for tennis at one fixed location in Boca Raton, FL by fusing two independent operational weather models — NOAA HRRR (3 km, hourly, radar-assimilating, physical) and ECMWF IFS (0.25°, physical, global) — through [Open-Meteo's free API](https://open-meteo.com/). For the **18-to-48-hour next-day tennis decision**, this is approximately the best reliable free configuration available: HRRR is the operational gold standard for short-range CONUS convective forecasting, and IFS is the gold-standard global physical model from a different organization with different physics. The honest ceiling at zero cost is that no public free model resolves a 5–15 km Florida pulse-storm with confidence at the city-block scale — that is a fundamental limit of the science, not of this app. Inside the 60-minute go/no-go window, the radar overlay (RainViewer past frames) is the only honest source of signal.
 
 ## 2. The forecasting problem in SE Florida
 
@@ -12,26 +12,34 @@ Boca Raton sits at 26.38°N on Florida's Atlantic coast. From roughly May throug
 
 This regime breaks three assumptions naive weather apps depend on:
 
-1. **Cells are smaller than the model grid.** A 12 km convective cell is right at HRRR's effective resolution (~9 km, i.e. 3× grid spacing) and well below AIFS's (~28 km). Global models cannot resolve a single Florida pulse storm; they resolve only the day's *propensity* to fire them.
+1. **Cells are smaller than the model grid.** A 12 km convective cell is right at HRRR's effective resolution (~9 km, i.e. 3× grid spacing) and well below IFS's (~28 km). Global models cannot resolve a single Florida pulse storm; they resolve only the day's *propensity* to fire them.
 2. **Cells are short.** A storm that drops 0.4" over a tennis court takes 20 minutes; a 1-hour forecast slot blurs that into a 0.4" hour with no way to know which 20 minutes mattered.
 3. **Placement is stochastic.** Tomorrow's 3pm storm is real; whether it hits this court or one 5 miles north is close to a coin flip. CONUS warm-season verification shows convection-allowing models systematically over-predict areal coverage and mis-place individual cells ([Cui et al., *Mon. Wea. Rev.* 152, 2024](https://journals.ametsoc.org/view/journals/mwre/152/1/MWR-D-23-0108.1.xml)).
 
 A single-model "60% chance at 3pm" therefore hides the real signal: "we know storms will fire — we don't know if your court gets hit." Florida users learn quickly that one-number forecasts are unreliable and stop trusting any of them.
 
-## 3. Why HRRR + AIFS is the right free pairing
+## 3. Why HRRR + IFS is the right free pairing
 
 **NOAA HRRR** is the operational gold standard for short-range CONUS convective forecasting. It runs at 3 km native resolution, updates every hour, and **assimilates radar reflectivity every 15 minutes** through a 36-member storm-scale ensemble Kalman filter ([Dowell et al., *Wea. Forecasting* 37, 2022](https://journals.ametsoc.org/view/journals/wefo/37/8/WAF-D-21-0151.1.xml)). It produces 18-hour forecasts hourly and 48-hour forecasts at 00/06/12/18 UTC. For "will storms fire this afternoon" over the US, HRRR consistently outperforms global models — no global model ingests radar at HRRR's cadence.
 
-**ECMWF AIFS** (Artificial Intelligence Forecasting System) went operational on 25 February 2025 ([Lang et al., arXiv:2406.01465](https://arxiv.org/abs/2406.01465)) and was upgraded to AIFS 1.1.0 on 27 August 2025 specifically to fix a precipitation-consistency issue ([Lang et al., arXiv:2509.18994](https://arxiv.org/abs/2509.18994)). AIFS is a deep learning model trained on decades of ERA5 reanalysis, run on the N320 reduced Gaussian grid (~28 km, served as 0.25° on Open-Meteo). The 1.1.0 update added physical bounding constraints that "substantially improve precipitation forecasts." On synoptic-scale headline metrics AIFS now performs at parity with or slightly better than the physical IFS.
+**ECMWF IFS** (Integrated Forecasting System) is the operational physical global model from the European Centre for Medium-Range Weather Forecasts and the gold standard against which all other global models are benchmarked. Open-Meteo serves it at 0.25° resolution (~28 km grid spacing) as `ecmwf_ifs025`. ECMWF publishes [continuous verification scorecards](https://charts.ecmwf.int/products/plwww_3m_hr_ccaf_adrian_ts?facets=%7B%22Range%22%3A%5B%22Short%20%26%20medium%20%282-14%20days%29%22%5D%7D) showing IFS leads the World Meteorological Organization scoring on the 500-hPa anomaly correlation metric most months of the year — it is the model meteorologists actually cite when they want one global number.
 
 **Why this specific pairing:**
-- **Independent error modes.** HRRR is regional, physical, radar-assimilating; AIFS is global, learned, ERA5-trained. Agreement is genuine consensus across unrelated methodologies. Disagreement is a real signal that the atmosphere is in an uncertain state — not a model bug.
-- **Different blind spots.** HRRR struggles with timing of mature MCS systems but excels at convective initiation; AIFS smooths spatial structure but captures large-scale patterns well.
-- **Both are free under one Open-Meteo `models=` call.**
+
+- **Independent error modes.** HRRR is regional convection-allowing physical with 15-minute radar assimilation; IFS is global synoptic-scale physical with conventional 4D-Var assimilation. Same fundamental scientific approach (physics-based numerical weather prediction) but **completely different organizations, grids, assimilation cycles, and physics packages**. Agreement is genuine consensus; disagreement is a real signal that the atmosphere is in an uncertain state — not a model bug.
+- **Different blind spots.** HRRR excels at convective initiation and short-range CONUS storms but smooths beyond ~18 h; IFS captures large-scale synoptic patterns and forecasts further out but cannot resolve individual sea-breeze cells. Their failure modes don't share a common cause.
+- **Both reliably expose `precipitation_probability` on Open-Meteo.** This is the variable the chart's % axis displays. ECMWF documents IFS probability as ensemble-derived; the discussion at [Open-Meteo #708](https://github.com/open-meteo/open-meteo/discussions/708) confirms IFS025 returns it.
+- **Both free under one Open-Meteo `models=` call** (with per-model fallback if the combined response drops one — see [BACKEND.md](./BACKEND.md)).
+
+**Why we switched away from ECMWF AIFS:**
+
+The original launch paired HRRR with ECMWF AIFS (`ecmwf_aifs025`, the AI variant — see [Lang et al., arXiv:2406.01465](https://arxiv.org/abs/2406.01465) and the 1.1.0 update [Lang et al., arXiv:2509.18994](https://arxiv.org/abs/2509.18994)). The pairing was attractive because AI vs physical is maximum methodological diversity. In production it failed: the AIFS chart line was always empty. Investigation traced the cause to AIFS deterministic not exposing `precipitation_probability` on Open-Meteo — precipitation probability is derived from ensemble spread, and AIFS deterministic is a single AI forecast, not an ensemble. The discussion at [Open-Meteo #708](https://github.com/open-meteo/open-meteo/discussions/708) explicitly lists IFS025 (among others) as supporting probability and does not list AIFS025. We switched to IFS, which trades the AI/physical diversity for confirmed probability support plus retained ECMWF/NOAA organizational diversity. A future ensemble-aware version of AIFS may flip this decision back.
 
 **Why not other free models:**
-- **GFS (`ncep_gfs025`):** Same NOAA lineage as HRRR but coarser; HRRR already absorbs GFS lateral boundaries, so adding GFS is redundant.
-- **ECMWF IFS (`ecmwf_ifs025`):** AIFS's physical sibling. The two have converged on headline metrics; adding IFS would be more correlated with AIFS than HRRR is. We prefer methodological diversity.
+
+- **GFS (`gfs_global` or `gfs_seamless`):** Same NOAA lineage as HRRR but coarser; HRRR already absorbs GFS lateral boundaries, so adding GFS is redundant.
+- **ECMWF AIFS (`ecmwf_aifs025`):** The AI variant. Excellent on synoptic metrics but does not expose `precipitation_probability` on Open-Meteo as deterministic — see preceding section.
+- **ICON Seamless (`icon_seamless`):** DWD's German global, independent physics, confirmed probability support. A reasonable third candidate; we chose IFS because of its longer verification record and prominence in operational meteorology.
 - **DWD ICON-D2:** Excellent 2 km convective model — Germany-only.
 - **NAM (`ncep_nam_conus`):** Older 12 km/3 km nest, outperformed by HRRR for convection.
 - **HREF (High-Resolution Ensemble Forecast):** What we'd actually want — an 8-member CONUS convection-allowing ensemble that explicitly samples convective uncertainty. Not on Open-Meteo. NCEP's [HREF page](https://vlab.noaa.gov/web/emc/href-hiresw) describes what we'd consume if we could.
@@ -40,10 +48,10 @@ A single-model "60% chance at 3pm" therefore hides the real signal: "we know sto
 
 Most consumer weather apps show one number ("55% chance of rain at 3pm") even when the backend has multiple models running. That choice silently averages away the most useful signal a multi-model setup produces — *the variance between models*.
 
-For Florida pulse convection the variance is the story. HRRR says 70%, AIFS says 20% → "we know storms will fire — we don't know if they hit you." Both say 45% → low-confidence "maybe." Same consensus number; very different decisions.
+For Florida pulse convection the variance is the story. HRRR says 70%, IFS says 20% → "we know storms will fire — we don't know if they hit you." Both say 45% → low-confidence "maybe." Same consensus number; very different decisions.
 
 The app exposes this in three layered ways:
-1. **Per-hour `disagreement` flag** — orange shading in the hourly chart where `|p_hrrr - p_aifs| > 25` percentage points.
+1. **Per-hour `disagreement` flag** — orange shading in the hourly chart where `|p_hrrr - p_ifs| > 25` percentage points.
 2. **Day-level `model_agreement`** (`AGREE`/`DISAGREE`) and a `disagreementAtRiskyHour` gate that promotes a GO verdict to LIGHT_CAUTION when models disagree on an already-wet hour.
 3. **Day-level `confidence` rating** (HIGH/MODERATE/LOW) from the mean absolute difference of per-hour probabilities across tennis hours.
 
@@ -51,7 +59,7 @@ Central thesis: we are not trying to beat the models. We surface the consensus a
 
 ## 5. Variables we use, and why each one
 
-Requested per hour for both `gfs_hrrr` and `ecmwf_aifs025`:
+Requested per hour for both `gfs_hrrr` and `ecmwf_ifs025`:
 
 | Variable | Why we use it | Caveat |
 | --- | --- | --- |
@@ -61,35 +69,35 @@ Requested per hour for both `gfs_hrrr` and `ecmwf_aifs025`:
 | `weathercode` | WMO weather code for "is it thunderstorm vs rain vs cloudy". Cosmetic. | Not in the verdict. |
 | `cloudcover` | Surfaced indirectly; not in the verdict. | Open-Meteo aggregate of low/mid/high. |
 | `windspeed_10m` | Drives `wind_max_mph` and `wind_mean_mph`. Sustained 15+ mph degrades tennis playability noticeably. | 10 m is the standard surface anemometer height. |
-| `wind_gusts_10m` | **(Added in this pass.)** Drives `wind_gust_max_mph`. Gusts above ~25 mph are the most common reason a clear-sky day is still unplayable. | HRRR's GRIB `GUST` field is a 1-hour maximum surface-layer parameter, bias-corrected against METAR observations. AIFS exposes `wind_gusts_10m` as part of its surface variable set. |
+| `wind_gusts_10m` | **(Added in this pass.)** Drives `wind_gust_max_mph`. Gusts above ~25 mph are the most common reason a clear-sky day is still unplayable. | HRRR's GRIB `GUST` field is a 1-hour maximum surface-layer parameter, bias-corrected against METAR observations. IFS exposes `wind_gusts_10m` as part of its surface variable set. |
 
 Per day we additionally pull `precipitation_sum`, `precipitation_probability_max`, `temperature_2m_max`, `temperature_2m_min`, `sunrise`, `sunset`, and `weathercode`. These are display-only or feed into the tennis-windows precipitation totals.
 
 ## 6. Variables we considered but didn't use
 
-- **`cape` (Convective Available Potential Energy)** — Both HRRR and AIFS expose it. CAPE > 2500 J/kg is "storm fuel exists." Rejected for the UI because raw CAPE is meteorologist-level data: actionable only against CIN and wind shear. CAPE *could* up-weight the afternoon-storm verdict in convective season, but the published skill gain is modest and the rule needs calibration we cannot do without a historical-accuracy DB.
+- **`cape` (Convective Available Potential Energy)** — Both HRRR and IFS expose it. CAPE > 2500 J/kg is "storm fuel exists." Rejected for the UI because raw CAPE is meteorologist-level data: actionable only against CIN and wind shear. CAPE *could* up-weight the afternoon-storm verdict in convective season, but the published skill gain is modest and the rule needs calibration we cannot do without a historical-accuracy DB.
 - **`convective_inhibition` (CIN)** — Same argument as CAPE.
 - **`lifted_index`** — Single-number instability metric, largely redundant with CAPE at this latitude.
 - **`uv_index`** — Genuinely useful for Florida summer tennis (UV index routinely hits 11+). Not shipped to keep hero stats focused on the rain/wind decision; if the hero gets a 5th tile this is the highest-value candidate.
-- **`lightning_potential_index`** — Not exposed by Open-Meteo for HRRR or AIFS on the standard API.
+- **`lightning_potential_index`** — Not exposed by Open-Meteo for HRRR or IFS on the standard API.
 - **`visibility`** — Exposed for GFS/HRRR but near-perfect on summer convective days outside of fog (rare here) — adds no signal.
 
 ## 7. Consensus method
 
-We use the simplest possible consensus: per-hour arithmetic mean of HRRR and AIFS probabilities and precipitation amounts. When only one model is available, the consensus is that single model and `uncertainty_note` is set.
+We use the simplest possible consensus: per-hour arithmetic mean of HRRR and IFS probabilities and precipitation amounts. When only one model is available, the consensus is that single model and `uncertainty_note` is set.
 
-We considered weighted consensus (HRRR gets more weight than AIFS because HRRR has higher native resolution), but rejected it because:
+We considered weighted consensus (HRRR gets more weight than IFS because HRRR has higher native resolution), but rejected it because:
 1. We do not have a defensible weight from peer-reviewed verification at this specific location and horizon.
-2. AIFS's update cycle and global view sometimes catch synoptic shifts HRRR misses, and we don't want to systematically discount that.
+2. IFS's update cycle and global view sometimes catch synoptic shifts HRRR misses, and we don't want to systematically discount that.
 3. The simplest consensus that we can explain in one sentence is more defensible than a weighting scheme that requires a paragraph to justify.
 
-The **honest limit** of arithmetic averaging is that if one model is wildly wrong (e.g., AIFS smooths a real storm into background drizzle), the consensus is dragged toward the wrong answer instead of being flagged. The `disagreement` machinery is the mitigation: when the models disagree by more than 25 percentage points, the consensus number is correct but the UI labels it "uncertain" so the user knows not to lean on it.
+The **honest limit** of arithmetic averaging is that if one model is wildly wrong (e.g., IFS smooths a real storm into background drizzle), the consensus is dragged toward the wrong answer instead of being flagged. The `disagreement` machinery is the mitigation: when the models disagree by more than 25 percentage points, the consensus number is correct but the UI labels it "uncertain" so the user knows not to lean on it.
 
 ## 8. Disagreement threshold
 
-The hourly disagreement flag fires when `|p_hrrr - p_aifs| > 25 percentage points`. This is a **heuristic** chosen to be:
+The hourly disagreement flag fires when `|p_hrrr - p_ifs| > 25 percentage points`. This is a **heuristic** chosen to be:
 - Large enough that two well-calibrated models agreeing within normal noise do not constantly flash a disagreement warning (typical model-pair noise on rain probability is 5–15 pp).
-- Small enough that a real "HRRR fires storms, AIFS doesn't" divergence is caught (typically 30–60 pp on Florida summer afternoons).
+- Small enough that a real "HRRR fires storms, IFS doesn't" divergence is caught (typically 30–60 pp on Florida summer afternoons).
 
 We did not derive 25 from a verification study at this location; the underlying calibration would require months of paired forecast/observation data and is currently out of scope (no DB). If a future agent builds historical-accuracy tracking, this constant is the first one to revisit. A reasonable evidence-based replacement would be **the 90th percentile of the absolute-diff distribution** measured over a few months of paired forecasts — i.e. flag the hours that are genuinely outliers in the local climatology.
 
@@ -101,9 +109,9 @@ Configured coordinates: 26.3797°N, 80.1539°W. The Santa Barbara community sits
 
 **Grid sampling implications:**
 - **HRRR's 3 km Lambert Conformal grid** places the location in a single cell ~9 km inland of the Atlantic coast. The forecast reflects conditions inside that 9 km² cell.
-- **AIFS's 0.25° (~28 km) Gaussian grid** places the location in a cell whose nearest edge is several km west of the coast — meaning the AIFS forecast for "Santa Barbara" is in practice a 28 km area-average that *includes substantial Atlantic ocean*. This systematically biases AIFS toward marine conditions: smoother wind, less afternoon convective triggering, lower pulse-storm probability. This is the most important caveat to AIFS at this location and explains a chunk of HRRR-vs-AIFS disagreement on summer afternoons. AIFS is included anyway because it is methodologically independent and synoptic-scale-informative — but the consensus inherits this coastal-smoothing bias.
+- **IFS's 0.25° (~28 km) Gaussian grid** places the location in a cell whose nearest edge is several km west of the coast — meaning the IFS forecast for "Santa Barbara" is in practice a 28 km area-average that *includes substantial Atlantic ocean*. This systematically biases IFS toward marine conditions: smoother wind, less afternoon convective triggering, lower pulse-storm probability. This is the most important caveat to IFS at this location and explains a chunk of HRRR-vs-IFS disagreement on summer afternoons. IFS is included anyway because it is methodologically independent and synoptic-scale-informative — but the consensus inherits this coastal-smoothing bias.
 
-If we shifted the coordinate one decimal place (~10 km), the HRRR cell would change but the AIFS cell almost certainly would not. This is exactly why we surface model disagreement: the AIFS smoothing is a known limit, and the disagreement chip exists to make the user aware when AIFS's coarse-grid view diverges from HRRR's storm-resolving one.
+If we shifted the coordinate one decimal place (~10 km), the HRRR cell would change but the IFS cell almost certainly would not. This is exactly why we surface model disagreement: the IFS smoothing is a known limit, and the disagreement chip exists to make the user aware when IFS's coarse-grid view diverges from HRRR's storm-resolving one.
 
 ## 10. Time horizons
 
@@ -113,7 +121,7 @@ Three layered horizons, each best served by a different tool:
 | --- | --- | --- |
 | 0–2 hours | RainViewer past radar | "Is the cell currently over us?" |
 | 0–18 hours | HRRR (every-hour cycle) | "Will a storm fire this afternoon?" |
-| 18–48 hours | HRRR + AIFS consensus | "Should I plan tennis tomorrow?" |
+| 18–48 hours | HRRR + IFS consensus | "Should I plan tennis tomorrow?" |
 
 We request `forecast_days=2` from Open-Meteo, which returns 48 hours of hourly data covering today and tomorrow. We deliberately do **not** extend to `forecast_days=3` because: (a) the primary use case is tomorrow's tennis decision, not the day-after-tomorrow; (b) HRRR's 48-hour runs only fire at 00/06/12/18 UTC, so the third day is GFS-extrapolated and noticeably less skillful; (c) the chart would have to render 72 hours, hurting mobile readability.
 
@@ -156,8 +164,8 @@ The app's job is the 24-hour decision. The user's job is the 60-minute go/no-go.
 
 The primary peer-reviewed and operational sources informing this document:
 
-1. **AIFS 1.1.0 operational paper** — Lang et al., *arXiv:2509.18994*, September 2025: <https://arxiv.org/abs/2509.18994>
-2. **Original AIFS paper** — Lang et al., *arXiv:2406.01465*, 2024: <https://arxiv.org/abs/2406.01465>
+1. **IFS 1.1.0 operational paper** — Lang et al., *arXiv:2509.18994*, September 2025: <https://arxiv.org/abs/2509.18994>
+2. **Original IFS paper** — Lang et al., *arXiv:2406.01465*, 2024: <https://arxiv.org/abs/2406.01465>
 3. **HRRR system description** — Dowell et al., *Weather and Forecasting* 37(8), 2022: <https://journals.ametsoc.org/view/journals/wefo/37/8/WAF-D-21-0151.1.xml>
 4. **HRRR warm-season precipitation verification** — Cui et al., *Monthly Weather Review* 152(1), 2024: <https://journals.ametsoc.org/view/journals/mwre/152/1/MWR-D-23-0108.1.xml>
 5. **Florida Sea Breeze Thunderstorm Regime methodology** — NWS Tampa Bay WFO: <https://www.weather.gov/tbw/SB_Methodology>

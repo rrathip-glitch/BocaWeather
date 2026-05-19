@@ -58,11 +58,11 @@ The backend queries two model identifiers as the `models=` parameter on `https:/
 | Constant     | Open-Meteo ID    | Model                                            | Why we use it                                                                                       |
 | ------------ | ---------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | `MODEL_HRRR` | `gfs_hrrr`       | NOAA High-Resolution Rapid Refresh (3 km, CONUS) | Gold standard for short-range US convective forecasting. Critical for Florida summer thunderstorms. |
-| `MODEL_AIFS` | `ecmwf_aifs025`  | ECMWF Artificial Intelligence Forecasting System (0.25°) | Independent ML-based check against HRRR. Different error modes, different lineage.        |
+| `MODEL_IFS` | `ecmwf_ifs025`  | ECMWF Integrated Forecasting System (0.25°)      | Independent physical check against HRRR. Different organization, different physics, different lineage. Confirmed support for `precipitation_probability`. |
 
 Both identifiers were verified against the Open-Meteo source enum (`MultiDomains` in `Sources/App/Controllers/ForecastapiController.swift`). `gfs_hrrr` is a distinct enum case that internally routes to the HRRR CONUS domain. The canonical alternative ID `ncep_hrrr_conus` also works and may be preferable in the future; either one returns identical data. We use `gfs_hrrr` because it matches Open-Meteo's public docs phrasing.
 
-When two models are requested in a single call (`models=gfs_hrrr,ecmwf_aifs025`), Open-Meteo suffixes every hourly and daily variable with the requested model name: `precipitation_gfs_hrrr`, `precipitation_ecmwf_aifs025`, `precipitation_probability_gfs_hrrr`, etc. The suffix is the literal user-supplied string, not the internal canonical name — so if you switch `MODEL_HRRR` to `ncep_hrrr_conus`, every response-side suffix changes too. `lib/openMeteo.js` and `lib/forecast.js` build all suffixes from the constants in `lib/config.js`, so a one-line config change propagates everywhere.
+When two models are requested in a single call (`models=gfs_hrrr,ecmwf_ifs025`), Open-Meteo suffixes every hourly and daily variable with the requested model name: `precipitation_gfs_hrrr`, `precipitation_ecmwf_ifs025`, `precipitation_probability_gfs_hrrr`, etc. The suffix is the literal user-supplied string, not the internal canonical name — so if you switch `MODEL_HRRR` to `ncep_hrrr_conus`, every response-side suffix changes too. `lib/openMeteo.js` and `lib/forecast.js` build all suffixes from the constants in `lib/config.js`, so a one-line config change propagates everywhere.
 
 ## Request strategy and graceful degradation
 
@@ -74,7 +74,7 @@ When two models are requested in a single call (`models=gfs_hrrr,ecmwf_aifs025`)
 4. If both per-model requests fail, throws — the Express error handler returns a 500 with the upstream error message.
 5. `models.<id>.available` and (when present) `models.<id>.error` flow through to the API response so the frontend can show "one model is offline" rather than silently dropping a comparison.
 
-HRRR covers CONUS only, so it always works for Boca Raton. AIFS is global and very rarely unavailable. The fallback path is defensive, not load-bearing.
+HRRR covers CONUS only, so it always works for Boca Raton. IFS is global and very rarely unavailable. The fallback path is defensive, not load-bearing.
 
 ## Verdict tier naming
 
@@ -126,7 +126,7 @@ Each tennis window keeps the older threshold rules, applied only to the hours in
 | `LIGHT_CAUTION`   | Max hourly probability between 35% and 60% **OR** precipitation_sum between 0.05 and 0.2 inch **OR** any hour in the window has model disagreement                                     |
 | `GO`              | Max hourly probability < 35% **AND** precipitation_sum < 0.05 inch **AND** models agree                                                                                                |
 
-**Hourly disagreement flag:** `|prob_hrrr - prob_aifs| > 25` percentage points. Used to render the per-hour `disagreement: true` chip.
+**Hourly disagreement flag:** `|prob_hrrr - prob_ifs| > 25` percentage points. Used to render the per-hour `disagreement: true` chip.
 
 **Daily disagreement (informational only):** Tracked over the tennis hours; a peak diff > 30 percentage points sets the daily disagreement flag but no longer auto-promotes verdicts — `disagreementAtRiskyHour` is the gate that actually moves a daily GO to CAUTION.
 
@@ -153,7 +153,7 @@ Both the `today` and `tomorrow` day objects include six computed fields aimed at
 
 ### Wind: `wind_max_mph`, `wind_mean_mph`, `wind_gust_max_mph`
 
-Open-Meteo's `windspeed_10m` and `wind_gusts_10m` variables are requested for both HRRR and AIFS in the `hourly=` list (see `HOURLY_VARS` in `lib/openMeteo.js`). For each tennis hour, `lib/forecast.js` averages the two model values into `windspeed_10m_consensus` and `wind_gusts_10m_consensus`. When only one model has a value at an hour, the consensus is that single value.
+Open-Meteo's `windspeed_10m` and `wind_gusts_10m` variables are requested for both HRRR and IFS in the `hourly=` list (see `HOURLY_VARS` in `lib/openMeteo.js`). For each tennis hour, `lib/forecast.js` averages the two model values into `windspeed_10m_consensus` and `wind_gusts_10m_consensus`. When only one model has a value at an hour, the consensus is that single value.
 
 - `wind_max_mph` is the maximum consensus **sustained** value across tennis hours, rounded to integer mph.
 - `wind_mean_mph` is the arithmetic mean of consensus sustained wind across tennis hours, rounded.
@@ -162,7 +162,7 @@ Open-Meteo's `windspeed_10m` and `wind_gusts_10m` variables are requested for bo
 
 The units are `mph` because the upstream request sets `windspeed_unit=mph`.
 
-**Why gust matters separately from sustained.** On a Florida day with sustained 12 mph but gusts to 28 mph, the verdict math sees a calm afternoon; the player serving feels a coin-flip ball-toss. HRRR's GRIB `GUST` field is a 1-hour maximum, derived in WRF's surface-layer scheme and bias-corrected against METAR observations during HRRR's hourly data assimilation cycle. AIFS exposes a `wind_gusts_10m` variable in its surface set. We surface gust as a third wind number rather than rolling it into the verdict because gust thresholds are highly player-specific (a doubles game tolerates higher gusts than a singles serve), but a 25+ mph gust column is genuinely tennis-disrupting and the UI highlights it. See [ACCURACY.md](./ACCURACY.md#5-variables-we-use-and-why-each-one) for the meteorology citation.
+**Why gust matters separately from sustained.** On a Florida day with sustained 12 mph but gusts to 28 mph, the verdict math sees a calm afternoon; the player serving feels a coin-flip ball-toss. HRRR's GRIB `GUST` field is a 1-hour maximum, derived in WRF's surface-layer scheme and bias-corrected against METAR observations during HRRR's hourly data assimilation cycle. IFS exposes a `wind_gusts_10m` variable in its surface set. We surface gust as a third wind number rather than rolling it into the verdict because gust thresholds are highly player-specific (a doubles game tolerates higher gusts than a singles serve), but a 25+ mph gust column is genuinely tennis-disrupting and the UI highlights it. See [ACCURACY.md](./ACCURACY.md#5-variables-we-use-and-why-each-one) for the meteorology citation.
 
 ### First rain: `first_rain_time`, `first_rain_hour_local`
 
@@ -187,7 +187,7 @@ Shape: `{ label, max_rain_prob, verdict }` — a minimal pointer into `tennis_wi
 
 ### Confidence: `confidence`, `confidence_note`
 
-Compute `meanAbsDiff` = mean of `|prob_hrrr - prob_aifs|` over tennis hours where *both* models have a value. Bin it:
+Compute `meanAbsDiff` = mean of `|prob_hrrr - prob_ifs|` over tennis hours where *both* models have a value. Bin it:
 
 | Bin       | Threshold                                  | Note format                                                                       |
 | --------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
@@ -221,7 +221,7 @@ Redeploy. The cache is in-memory so it flushes automatically on process restart.
 
 If you want to support **multiple locations simultaneously**, that is a larger change: the cache key needs to include the location, `GET /api/forecast` needs a `?location=` query parameter, and the frontend needs a selector. Out of scope for the current single-community deployment.
 
-If the new location is **outside CONUS**, HRRR will fail (it is US-only). The fallback path will return AIFS-only data with `models.hrrr.available: false` and `uncertainty_note` populated. Consider swapping `MODEL_HRRR` for a regional model that covers your area (`dwd_icon_d2` for Europe, `meteofrance_arome_france_hd` for France, etc.) — see the [Open-Meteo source enum](https://github.com/open-meteo/open-meteo/blob/main/Sources/App/Helper/DomainRegistry.swift) for the full list.
+If the new location is **outside CONUS**, HRRR will fail (it is US-only). The fallback path will return IFS-only data with `models.hrrr.available: false` and `uncertainty_note` populated. Consider swapping `MODEL_HRRR` for a regional model that covers your area (`dwd_icon_d2` for Europe, `meteofrance_arome_france_hd` for France, etc.) — see the [Open-Meteo source enum](https://github.com/open-meteo/open-meteo/blob/main/Sources/App/Helper/DomainRegistry.swift) for the full list.
 
 ## Sample curl commands
 

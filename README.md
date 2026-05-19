@@ -4,7 +4,7 @@ Tennis-focused, dual-model rain forecasts for the Santa Barbara community in Boc
 
 ## What it does
 
-BocaWeather answers two questions: "Can I play tennis tomorrow, and if so, when?" and "Can I get a set in this afternoon?" It pulls hourly precipitation forecasts from two independent weather models (NOAA HRRR and ECMWF AIFS) for the Santa Barbara community in Boca Raton and converts them into a simple GO / CAUTION / HEAVY CAUTION verdict plus per-window guidance for morning, midday, afternoon, and evening play.
+BocaWeather answers two questions: "Can I play tennis tomorrow, and if so, when?" and "Can I get a set in this afternoon?" It pulls hourly precipitation forecasts from two independent weather models (NOAA HRRR and ECMWF IFS) for the Santa Barbara community in Boca Raton and converts them into a simple GO / CAUTION / HEAVY CAUTION verdict plus per-window guidance for morning, midday, afternoon, and evening play.
 
 Switch between today's remaining tennis hours and tomorrow's full forecast with a single tap. Both days surface verdict, wind, first-rain time, best window, and confidence. Tomorrow is the default view because next-day planning is the primary use case; today is one tap away for mid-day decisions.
 
@@ -17,7 +17,7 @@ Florida summer storms are sub-grid-scale convective cells: a single model can ea
 BocaWeather fetches two models with very different lineages:
 
 - **NOAA HRRR** — 3 km native resolution, US-only, the gold standard for short-range US convective forecasts.
-- **ECMWF AIFS** — ECMWF's new AI-based global model, a strong independent check with different error modes than HRRR.
+- **ECMWF IFS** — ECMWF's Integrated Forecasting System, the gold-standard global physical model. Different organization, different physics, different lineage from HRRR — and confirmed to expose `precipitation_probability` on Open-Meteo (which AIFS deterministic does not, see [docs/ACCURACY.md](./docs/ACCURACY.md)).
 
 When the two models agree, confidence is high and we say so. When they disagree by more than 25 percentage points at a given hour, we flag it. That honest disagreement signal is the actual edge over single-model apps.
 
@@ -45,7 +45,7 @@ BocaWeather/
   server.js          # Express bootstrap, route mounting, static hosting
   lib/
     config.js        # Location, timezone, cache TTL, model list
-    openMeteo.js     # Open-Meteo client; fetches HRRR + AIFS
+    openMeteo.js     # Open-Meteo client; fetches HRRR + IFS
     forecast.js      # Verdict logic, tennis windows, disagreement flags
     cache.js         # 10-min in-memory cache
   public/
@@ -75,13 +75,13 @@ All tunables live in `lib/config.js`:
 
 - `LOCATION` — `{ name, lat, lon, timezone }`. Default is the Santa Barbara community in Boca Raton, FL — NE corner of Jog Rd & Glades Rd, zip 33434 (lat 26.3797, lon -80.1539, `America/New_York`).
 - `CACHE_TTL_MS` — In-memory cache lifetime. Default 10 minutes. Do not drop below 5 minutes (Open-Meteo etiquette).
-- `MODELS` — The two Open-Meteo model identifiers we compare. Default `['gfs_hrrr', 'ecmwf_aifs025']`.
+- `MODELS` — The two Open-Meteo model identifiers we compare. Default `['gfs_hrrr', 'ecmwf_ifs025']`.
 
 To move the location, edit `LOCATION` and redeploy. To change verdict thresholds, see [docs/DESIGN.md](./docs/DESIGN.md) and edit `lib/forecast.js`.
 
 ## Data source
 
-[Open-Meteo](https://open-meteo.com) — free, no API key, generous rate limits (around 10k requests/day on the free tier). Both HRRR and AIFS are exposed via the same `/v1/forecast` endpoint by passing the `models=` parameter.
+[Open-Meteo](https://open-meteo.com) — free, no API key, generous rate limits (around 10k requests/day on the free tier). Both HRRR and IFS are exposed via the same `/v1/forecast` endpoint by passing the `models=` parameter.
 
 ## License
 

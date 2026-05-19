@@ -27,7 +27,7 @@ The page is a single scroll. Sections render top-to-bottom into containers in `i
 | Day toggle         | `#day-toggle` (above hero)     | `renderDayToggle(data)` / `wireDayToggle()` | Segmented Today / Tomorrow pill with sliding indicator; drives every day-aware render via `appState.selectedDay`. |
 | Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Tiered GO / CAUTION / HEAVY CAUTION with reason, subtitle pills, agreement chip, quick stats. Day-aware via `currentDay(data)`. |
 | Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills + BEST badge on the safest slot. Day-aware. |
-| Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & AIFS lines, night/disagree bands, NOW line, sunrise/sunset markers, selected-day highlight wash. |
+| Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & IFS lines, night/disagree bands, NOW line, sunrise/sunset markers, selected-day highlight wash. |
 | Live Radar         | `#radar-map` + controls        | `initRadar()` / `renderRadar()` | Leaflet + CartoDB base, RainViewer animated radar overlay, pulsing pin. |
 | Hourly strip       | `#hourly-strip`                | `renderHourlyStrip(data)`       | Horizontally scrollable 24-hour chip strip. Chips matching the selected day get `.is-active-day`. |
 | Footer             | `#generated-info`              | `renderFooter(data)`            | "Forecast generated at HH:MM EDT · cached/fresh" + data attribution.    |
@@ -287,14 +287,14 @@ A vertical dashed white line at the current local time, drawn by the `nowLine` C
 
 To disable, remove `nowPlugin` from the `plugins:` array at the bottom of the Chart constructor in `renderHourlyChart()`. Sunrise/sunset markers (the `sunMarkers` plugin) are independent and use the same interpolation helper.
 
-### Chart legend pills + HRRR/AIFS popovers
+### Chart legend pills + HRRR/IFS popovers
 
-Below the chart canvas (`.chart-legend`) is a row of four `.chart-legend-pill` items: HRRR, AIFS, Consensus, Models disagree — each with a colored swatch (`.legend-swatch`) that mirrors the in-chart styling (solid cyan for HRRR, dashed magenta for AIFS, cyan-fade bar for the consensus bar, amber-fade for the disagreement band).
+Below the chart canvas (`.chart-legend`) is a row of four `.chart-legend-pill` items: HRRR, IFS, Consensus, Models disagree — each with a colored swatch (`.legend-swatch`) that mirrors the in-chart styling (solid cyan for HRRR, dashed magenta for IFS, cyan-fade bar for the consensus bar, amber-fade for the disagreement band).
 
-HRRR and AIFS additionally carry a tiny `(?)` icon button (`.legend-help`) with a popover tooltip (`.legend-popover`) explaining the model:
+HRRR and IFS additionally carry a tiny `(?)` icon button (`.legend-help`) with a popover tooltip (`.legend-popover`) explaining the model:
 
 - **HRRR** — *NOAA High-Resolution Rapid Refresh — 3 km US convective model. Best skill for Florida summer storms in the 18–48 h window.*
-- **AIFS** — *ECMWF Artificial Intelligence Forecasting System — global AI model with strong skill on synoptic patterns.*
+- **IFS** — *ECMWF Integrated Forecasting System — gold-standard physical global model. Different organization and physics than HRRR, so disagreement is meaningful.*
 
 Popover behavior is double-implemented for input parity:
 
@@ -397,7 +397,7 @@ To swap:
 3. Update the SVG gradients inside `public/favicon.svg` so the icon stays consistent.
 4. Update the `<meta name="theme-color">` value in the `<head>` of `index.html` (the browser chrome color on mobile) to your new darkest hex.
 5. The animated background lives in `.bg-stage` (CSS file). Adjust the `radial-gradient` and `linear-gradient` colors there.
-6. The Chart.js line colors are hard-coded as `#7dd3fc` (HRRR) and `#c084fc` (AIFS) inside `renderHourlyChart()`. If they no longer harmonize, update them in `app.js`. The disagreement-band amber (`rgba(251, 191, 36, ...)`) and night-shade navy (`rgba(11, 29, 58, 0.35)`) are also in the chart plugins and should be matched to your new amber/dark.
+6. The Chart.js line colors are hard-coded as `#7dd3fc` (HRRR) and `#c084fc` (IFS) inside `renderHourlyChart()`. If they no longer harmonize, update them in `app.js`. The disagreement-band amber (`rgba(251, 191, 36, ...)`) and night-shade navy (`rgba(11, 29, 58, 0.35)`) are also in the chart plugins and should be matched to your new amber/dark.
 
 The `.verdict-{go,light,heavy}` classes (in `styles.css`) handle the per-tier font size / weight / glow and reference the CSS vars — no edit needed there beyond the `:root` block, provided you keep variable names identical.
 
@@ -507,7 +507,7 @@ The frontend was developed against this representative payload. It matches the c
     "label": "tomorrow",
     "is_concluded": false,
     "verdict": "LIGHT_CAUTION",
-    "verdict_reason": "Models disagree on afternoon convection (HRRR peaks at 68%, AIFS stays under 25%).",
+    "verdict_reason": "Models disagree on afternoon convection (HRRR peaks at 68%, IFS stays under 25%).",
     "rain_probability_max": 68,
     "rain_probability_mean": 27,
     "precipitation_sum_in": 0.12,
@@ -516,7 +516,7 @@ The frontend was developed against this representative payload. It matches the c
     "sunrise": "2026-05-20T10:31:00Z",
     "sunset": "2026-05-21T00:08:00Z",
     "model_agreement": "DISAGREE",
-    "uncertainty_note": "HRRR is firing scattered storms; AIFS is keeping it dry.",
+    "uncertainty_note": "HRRR is firing scattered storms; IFS is keeping it dry.",
     "wind_max_mph": 14,
     "wind_mean_mph": 9,
     "wind_gust_max_mph": 28,
@@ -540,7 +540,7 @@ The frontend was developed against this representative payload. It matches the c
       },
       {
         "label": "Afternoon", "start": "2026-05-20T18:00:00Z", "end": "2026-05-20T22:00:00Z",
-        "verdict": "HEAVY_CAUTION", "max_rain_prob": 68, "reason": "HRRR fires a line of storms 3–6 PM; AIFS disagrees.", "is_past": false
+        "verdict": "HEAVY_CAUTION", "max_rain_prob": 68, "reason": "HRRR fires a line of storms 3–6 PM; IFS disagrees.", "is_past": false
       },
       {
         "label": "Evening", "start": "2026-05-20T22:00:00Z", "end": "2026-05-21T01:00:00Z",
@@ -554,10 +554,10 @@ The frontend was developed against this representative payload. It matches the c
       "hour_local": "14:00",
       "is_tomorrow": false,
       "rain_probability_hrrr": 12,
-      "rain_probability_aifs": 8,
+      "rain_probability_ifs": 8,
       "rain_probability_consensus": 10,
       "precipitation_in_hrrr": 0.0,
-      "precipitation_in_aifs": 0.0,
+      "precipitation_in_ifs": 0.0,
       "precipitation_in_consensus": 0.0,
       "disagreement": false,
       "temperature_f": 82,
@@ -568,10 +568,10 @@ The frontend was developed against this representative payload. It matches the c
       "hour_local": "15:00",
       "is_tomorrow": true,
       "rain_probability_hrrr": 68,
-      "rain_probability_aifs": 22,
+      "rain_probability_ifs": 22,
       "rain_probability_consensus": 45,
       "precipitation_in_hrrr": 0.11,
-      "precipitation_in_aifs": 0.02,
+      "precipitation_in_ifs": 0.02,
       "precipitation_in_consensus": 0.065,
       "disagreement": true,
       "temperature_f": 84,
@@ -581,7 +581,7 @@ The frontend was developed against this representative payload. It matches the c
   ],
   "models": {
     "hrrr": { "available": true, "id": "gfs_hrrr" },
-    "aifs": { "available": true, "id": "ecmwf_aifs025" }
+    "ifs": { "available": true, "id": "ecmwf_ifs025" }
   }
 }
 ```
@@ -592,7 +592,7 @@ The frontend was developed against this representative payload. It matches the c
 
 - `model_agreement === "DISAGREE"` → amber chip in hero + now strip; amber bands on chart hours flagged `disagreement: true`; amber ring on hourly chips.
 - `cached: true` → footer reads "cached" (else "fresh").
-- `rain_probability_hrrr` or `rain_probability_aifs` `null` → Chart.js `spanGaps: true` connects across the gap; the consensus bar still renders from `rain_probability_consensus`.
+- `rain_probability_hrrr` or `rain_probability_ifs` `null` → Chart.js `spanGaps: true` connects across the gap; the consensus bar still renders from `rain_probability_consensus`.
 - `tennis_windows` length `!== 4` → grid stretches; no crash, but copy assumes 4. If the backend changes the count, update the grid breakpoints in `index.html` and the explanatory copy.
 - `first_rain_hour_local` `null` → "Rain begins…" pill is omitted entirely; the subtitle row simply has one fewer pill.
 - `best_window` `null` → "Best window" pill is omitted **and** no BEST badge renders on any window card.

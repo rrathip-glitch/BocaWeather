@@ -25,19 +25,19 @@ We do not try to beat the models. We surface the disagreement between two good, 
 For every hour of tomorrow's local day we fetch precipitation probability and precipitation amount from two models:
 
 - **NOAA HRRR** (`gfs_hrrr` in Open-Meteo) — 3 km native horizontal resolution, run hourly by NOAA, US-only. HRRR is widely regarded as the best operational model for short-range (0-48h) convective forecasts over the continental US. It is the model most TV meteorologists are looking at for "will there be a storm this afternoon" questions.
-- **ECMWF AIFS** (`ecmwf_aifs025` in Open-Meteo) — ECMWF's AI-based global forecast model (0.25 degree). It is trained on decades of ERA5 reanalysis and has shown skill comparable to or exceeding the IFS physical model on many headline metrics. Critically for our purposes, its error modes are different from HRRR's: AIFS is global and learned, HRRR is regional and physical.
+- **ECMWF IFS** (`ecmwf_ifs025` in Open-Meteo) — ECMWF's Integrated Forecasting System, the gold-standard physical global model (0.25°). Different organization from HRRR, different physics, different data assimilation. Critically for our purposes, its error modes are different from HRRR's: IFS is global and synoptic-scale physical, HRRR is regional and convection-allowing. We initially used ECMWF AIFS (the AI variant) but switched to IFS after discovering AIFS deterministic does not expose `precipitation_probability` on Open-Meteo (the variable requires an ensemble; AIFS deterministic is a single forecast). IFS does, so the chart now has real two-line model comparison instead of a silently-empty AIFS line.
 
 For each hour we compute:
 
 - `p_hrrr` — HRRR precipitation probability (0-100).
-- `p_aifs` — AIFS precipitation probability (0-100).
-- `p_mean = (p_hrrr + p_aifs) / 2` — simple-average consensus.
-- `disagreement = abs(p_hrrr - p_aifs)`.
+- `p_ifs` — IFS precipitation probability (0-100).
+- `p_mean = (p_hrrr + p_ifs) / 2` — simple-average consensus.
+- `disagreement = abs(p_hrrr - p_ifs)`.
 - `disagree = disagreement > 25` — boolean flag rendered prominently in the UI.
 
 We also pull precipitation amount (inches) from both models and compute the same consensus.
 
-The UI is built so a disagreement does not look like an error. It looks like information. "HRRR says 70%, AIFS says 20% — models disagree, treat tomorrow afternoon as uncertain" is a more useful sentence than "55% chance of rain."
+The UI is built so a disagreement does not look like an error. It looks like information. "HRRR says 70%, IFS says 20% — models disagree, treat tomorrow afternoon as uncertain" is a more useful sentence than "55% chance of rain."
 
 ## 3. Verdict thresholds
 
@@ -202,8 +202,8 @@ This is an explicit non-goal so that a future agent does not bolt on a half-work
 
 - **Node.js 20 + Express 4 (ESM, single process)** — One process is enough for the load and the cache lives in process memory. No external dependencies (no Redis, no DB) means Railway deploys are trivial and there is nothing to misconfigure. Node 20 is current LTS.
 - **No frontend framework** — Plain HTML, Tailwind via CDN, Chart.js via CDN, one `app.js` file. There is no build step. The page loads instantly on mobile and there is nothing to break in CI. The app's value is in the data, not the UI plumbing.
-- **Open-Meteo** — Free, no API key, no signup, both HRRR and AIFS available via the same endpoint with a `models=` parameter. Generous rate limits (~10k req/day free). The alternative is paying NOAA/ECMWF directly, which is overkill for this app.
-- **10-minute in-memory cache** — Open-Meteo updates HRRR hourly and AIFS less often. A 10-minute cache cuts our outbound requests to roughly six per hour even under load, well inside the free-tier budget. Cache is intentionally process-local: a Railway restart flushes it, which is the simplest possible cache invalidation story.
+- **Open-Meteo** — Free, no API key, no signup, both HRRR and IFS available via the same endpoint with a `models=` parameter. Generous rate limits (~10k req/day free). The alternative is paying NOAA/ECMWF directly, which is overkill for this app.
+- **10-minute in-memory cache** — Open-Meteo updates HRRR hourly and IFS less often. A 10-minute cache cuts our outbound requests to roughly six per hour even under load, well inside the free-tier budget. Cache is intentionally process-local: a Railway restart flushes it, which is the simplest possible cache invalidation story.
 - **No database** — There is no user state, no history (yet), and no need to persist anything across restarts. Adding a DB would be the largest possible architectural change for zero current product value.
 
 ## 10. Project structure

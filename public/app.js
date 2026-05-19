@@ -334,7 +334,7 @@
   // ---- Forecast confidence chip ----
   // Single source of truth for day-level model uncertainty. Derived from
   // `tomorrow.confidence` (HIGH / MODERATE / LOW), which is computed from the
-  // mean absolute difference between HRRR and AIFS rain probabilities across
+  // mean absolute difference between HRRR and IFS rain probabilities across
   // the 16 tennis hours. This replaces the older split where a binary
   // model_agreement chip and a separate confidence pill could contradict
   // each other ("Both models agree" + "Forecast confidence: Low"). The
@@ -559,7 +559,7 @@
         ? `<span class="best-badge" title="Lowest-risk window"><svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="3 8.5 6.5 12 13 5"/></svg>Best</span>`
         : '';
       const pastClass = isPast ? ' is-past' : '';
-      // Per-window confidence tag — shows how much HRRR and AIFS agree on
+      // Per-window confidence tag — shows how much HRRR and IFS agree on
       // THIS window's hours specifically. Distinct from the day-level chip
       // (which covers all 16 tennis hours) and from the per-hour disagreement
       // (which paints the chart). Three tones map to the same green/amber/
@@ -612,7 +612,7 @@
     const hours = visible.slice(0, 36);
     const labels = hours.map(h => fmtTimeShort(new Date(h.time)));
     const hrrr = hours.map(h => h.rain_probability_hrrr);
-    const aifs = hours.map(h => h.rain_probability_aifs);
+    const ifsValues = hours.map(h => h.rain_probability_ifs);
     const cons = hours.map(h => h.rain_probability_consensus);
 
     // Night bands key off whatever day object exposes sunrise/sunset. Prefer
@@ -872,8 +872,8 @@
           },
           {
             type: 'line',
-            label: 'AIFS',
-            data: aifs,
+            label: 'IFS',
+            data: ifsValues,
             borderColor: '#c084fc',
             backgroundColor: 'rgba(192, 132, 252, 0.0)',
             borderWidth: 2.5,
@@ -1396,7 +1396,7 @@
   }
 
   // ============================================================
-  // Chart legend popovers — (?) buttons next to HRRR/AIFS labels.
+  // Chart legend popovers — (?) buttons next to HRRR/IFS labels.
   // Click toggles aria-expanded which CSS uses to show the popover.
   // Hover-only behavior on desktop is pure-CSS (no JS needed).
   // Outside-click and Escape both dismiss.

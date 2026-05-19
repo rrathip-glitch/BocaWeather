@@ -200,25 +200,25 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
       "hour_local": "15:00",
       "is_tomorrow": true,
       "rain_probability_hrrr": 68,
-      "rain_probability_aifs": 22,
+      "rain_probability_ifs": 22,
       "rain_probability_consensus": 45,
       "precipitation_in_hrrr": 0.10,
-      "precipitation_in_aifs": 0.02,
+      "precipitation_in_ifs": 0.02,
       "precipitation_in_consensus": 0.06,
       "disagreement": true,
       "temperature_f": 82.5,
       "weathercode": 95,
       "windspeed_10m_hrrr": 14,
-      "windspeed_10m_aifs": 12,
+      "windspeed_10m_ifs": 12,
       "windspeed_10m_consensus": 13.0,
       "wind_gusts_10m_hrrr": 27,
-      "wind_gusts_10m_aifs": 24,
+      "wind_gusts_10m_ifs": 24,
       "wind_gusts_10m_consensus": 25.5
     }
   ],
   "models": {
     "hrrr": { "available": true, "id": "gfs_hrrr" },
-    "aifs": { "available": true, "id": "ecmwf_aifs025" }
+    "ifs": { "available": true, "id": "ecmwf_ifs025" }
   }
 }
 ```
@@ -258,7 +258,7 @@ The `today` and `tomorrow` objects share the same field shape. `today` adds two 
 | `today.first_rain_time`                 | ISO string \| null  | Timestamp of first remaining tennis hour with `rain_probability_consensus >= 50`. `null` if no such hour or concluded. |
 | `today.first_rain_hour_local`           | string \| null      | Same hour formatted `"H:MM AM/PM"` in `location.timezone`. `null` when no first rain or concluded.           |
 | `today.best_window`                     | object \| null      | Best non-past tennis window today: `{ label, max_rain_prob, verdict }`. `null` if every remaining window is `HEAVY_CAUTION` or all windows are past (concluded). |
-| `today.confidence`                      | enum \| null        | `"HIGH" \| "MODERATE" \| "LOW"`. Binned from mean per-hour absolute difference between HRRR and AIFS over remaining tennis hours. `null` when concluded. |
+| `today.confidence`                      | enum \| null        | `"HIGH" \| "MODERATE" \| "LOW"`. Binned from mean per-hour absolute difference between HRRR and IFS over remaining tennis hours. `null` when concluded. |
 | `today.confidence_note`                 | string              | Human-readable note explaining the confidence rating. On a concluded today: `"Tennis day complete."` |
 | `today.tennis_windows[]`                | array of 4 objects  | Morning / Midday / Afternoon / Evening. Always 4 entries in this order, even on concluded today.             |
 | `today.tennis_windows[].label`          | string              | `"Morning" \| "Midday" \| "Afternoon" \| "Evening"`.                                                         |
@@ -272,22 +272,22 @@ The `today` and `tomorrow` objects share the same field shape. `today` adds two 
 | `hourly[].hour_local`                   | string              | Local hour formatted `HH:00`.                                                                                |
 | `hourly[].is_tomorrow`                  | boolean             | True if the timestamp falls on `tomorrow.date`; false if it falls on `today.date`. The `hourly[]` array contains today's remaining hours plus all of tomorrow. |
 | `hourly[].rain_probability_hrrr`        | int \| null         | HRRR precipitation probability for this hour. `null` if HRRR is unavailable.                                 |
-| `hourly[].rain_probability_aifs`        | int \| null         | AIFS precipitation probability for this hour. `null` if AIFS is unavailable.                                 |
+| `hourly[].rain_probability_ifs`        | int \| null         | IFS precipitation probability for this hour. `null` if IFS is unavailable.                                 |
 | `hourly[].rain_probability_consensus`   | int                 | Mean of the two models (or whichever is available). Integer 0-100.                                           |
 | `hourly[].precipitation_in_hrrr`        | number \| null      | HRRR hourly precipitation, inches.                                                                           |
-| `hourly[].precipitation_in_aifs`        | number \| null      | AIFS hourly precipitation, inches.                                                                           |
+| `hourly[].precipitation_in_ifs`        | number \| null      | IFS hourly precipitation, inches.                                                                           |
 | `hourly[].precipitation_in_consensus`   | number              | Mean of the two models, inches.                                                                              |
-| `hourly[].disagreement`                 | boolean             | True where `abs(rain_probability_hrrr - rain_probability_aifs) > 25`.                                        |
+| `hourly[].disagreement`                 | boolean             | True where `abs(rain_probability_hrrr - rain_probability_ifs) > 25`.                                        |
 | `hourly[].temperature_f`                | number \| null      | Consensus temperature, Fahrenheit.                                                                           |
 | `hourly[].weathercode`                  | int \| null         | WMO weathercode (whichever model reports first).                                                             |
 | `hourly[].windspeed_10m_hrrr`           | number \| null      | HRRR sustained wind speed at 10 m, mph.                                                                      |
-| `hourly[].windspeed_10m_aifs`           | number \| null      | AIFS sustained wind speed at 10 m, mph.                                                                      |
+| `hourly[].windspeed_10m_ifs`           | number \| null      | IFS sustained wind speed at 10 m, mph.                                                                      |
 | `hourly[].windspeed_10m_consensus`      | number \| null      | Mean of the two model sustained wind speeds, mph.                                                            |
 | `hourly[].wind_gusts_10m_hrrr`          | number \| null      | HRRR peak 10 m wind gust for the hour, mph. From NOAA GRIB `GUST` field.                                     |
-| `hourly[].wind_gusts_10m_aifs`          | number \| null      | AIFS peak 10 m wind gust for the hour, mph.                                                                  |
+| `hourly[].wind_gusts_10m_ifs`          | number \| null      | IFS peak 10 m wind gust for the hour, mph.                                                                  |
 | `hourly[].wind_gusts_10m_consensus`     | number \| null      | Mean of the two model gust speeds, mph. Surfaced when materially higher than sustained.                      |
-| `models.hrrr.available` / `aifs.available` | boolean          | True if that model returned data this cycle.                                                                 |
-| `models.hrrr.id` / `aifs.id`            | string              | The Open-Meteo model identifier used (e.g. `gfs_hrrr`, `ecmwf_aifs025`).                                     |
+| `models.hrrr.available` / `ifs.available` | boolean          | True if that model returned data this cycle.                                                                 |
+| `models.hrrr.id` / `ifs.id`            | string              | The Open-Meteo model identifier used (e.g. `gfs_hrrr`, `ecmwf_ifs025`).                                     |
 
 ### Error responses
 
@@ -296,10 +296,10 @@ The `today` and `tomorrow` objects share the same field shape. `today` adds two 
 ```json
 {
   "error": "upstream_failed",
-  "message": "Both HRRR and AIFS requests to Open-Meteo failed.",
+  "message": "Both HRRR and IFS requests to Open-Meteo failed.",
   "details": {
     "hrrr": "fetch timeout after 8000ms",
-    "aifs": "fetch timeout after 8000ms"
+    "ifs": "fetch timeout after 8000ms"
   }
 }
 ```

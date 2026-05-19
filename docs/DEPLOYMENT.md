@@ -107,11 +107,11 @@ railway logs --deployment <id>
 ### Forecast looks stale
 
 - The in-memory cache holds responses for 10 minutes. To force a flush, redeploy or restart the service from the Railway dashboard.
-- Open-Meteo itself updates HRRR roughly hourly and AIFS less often. A "stale" forecast may just be the latest run.
+- Open-Meteo itself updates HRRR roughly hourly and IFS less often. A "stale" forecast may just be the latest run.
 
 ### One model is missing in the response
 
-- If `models.hrrr.ok` or `models.aifs.ok` is false in `/api/forecast`, the upstream call for that model failed. The app continues with the surviving model — this is intentional, see [DESIGN.md](./DESIGN.md). Check Railway logs for the upstream error.
+- If `models.hrrr.ok` or `models.ifs.ok` is false in `/api/forecast`, the upstream call for that model failed. The app continues with the surviving model — this is intentional, see [DESIGN.md](./DESIGN.md). Check Railway logs for the upstream error.
 
 ### Healthcheck fails on first deploy
 

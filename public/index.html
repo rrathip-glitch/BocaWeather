@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0b1d3a" />
-  <meta name="description" content="Premium tomorrow-rain forecast for tennis in Santa Barbara, Boca Raton. HRRR + AIFS model consensus with honest uncertainty signals." />
+  <meta name="description" content="Premium tomorrow-rain forecast for tennis in Santa Barbara, Boca Raton. HRRR + IFS model consensus with honest uncertainty signals." />
   <meta name="color-scheme" content="dark" />
 
   <!-- Open Graph -->
   <meta property="og:title" content="Tomorrow's Tennis Forecast · Santa Barbara, Boca Raton" />
-  <meta property="og:description" content="Will I be playing tomorrow? Confident rain predictions from HRRR + AIFS model consensus, with honest uncertainty signals." />
+  <meta property="og:description" content="Will I be playing tomorrow? Confident rain predictions from HRRR + IFS model consensus, with honest uncertainty signals." />
   <meta property="og:type" content="website" />
   <meta property="og:image" content="/favicon.svg" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -201,7 +201,7 @@
 
       <div class="rounded-2xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl shadow-glass p-4 sm:p-6">
         <div class="chart-shell">
-          <canvas id="rain-chart" role="img" aria-label="Hour-by-hour rain probability for the next 36 hours, comparing HRRR and AIFS models with a consensus bar and amber bands where the models disagree"></canvas>
+          <canvas id="rain-chart" role="img" aria-label="Hour-by-hour rain probability for the next 36 hours, comparing HRRR and IFS models with a consensus bar and amber bands where the models disagree"></canvas>
         </div>
 
         <!-- Pill legend -->
@@ -218,14 +218,14 @@
             </span>
           </span>
           <span class="chart-legend-pill" role="listitem">
-            <span class="legend-swatch swatch-aifs" aria-hidden="true"></span>
-            <span class="legend-label">AIFS</span>
-            <button type="button" class="legend-help" data-popover="aifs"
-              aria-label="What is AIFS?" aria-expanded="false">
+            <span class="legend-swatch swatch-ifs" aria-hidden="true"></span>
+            <span class="legend-label">IFS</span>
+            <button type="button" class="legend-help" data-popover="ifs"
+              aria-label="What is IFS?" aria-expanded="false">
               <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 6c.2-1 1-1.6 2-1.6 1.1 0 1.9.7 1.9 1.7 0 .8-.5 1.2-1.2 1.6-.6.4-.9.7-.9 1.3v.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.7" r="0.85" fill="currentColor"/></svg>
             </button>
-            <span class="legend-popover" data-popover-for="aifs" role="tooltip">
-              ECMWF <span class="text-ink-100">Artificial Intelligence Forecasting System</span> — global AI model with strong skill on synoptic patterns.
+            <span class="legend-popover" data-popover-for="ifs" role="tooltip">
+              ECMWF <span class="text-ink-100">Integrated Forecasting System</span> — the gold-standard physical global model. Different organization and physics than HRRR, so disagreement is meaningful.
             </span>
           </span>
           <span class="chart-legend-pill" role="listitem">
@@ -337,7 +337,7 @@
           <div id="generated-info">Loading forecast…</div>
           <div class="mt-1">
             Data: <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline decoration-white/20 hover:decoration-white/60 text-ink-70">Open-Meteo</a>
-            · HRRR (NOAA) · AIFS (ECMWF)
+            · HRRR (NOAA) · IFS (ECMWF)
           </div>
         </div>
         <div class="flex items-center gap-4">
@@ -353,7 +353,7 @@
       <div class="how-card relative max-w-lg w-full rounded-2xl bg-ocean-700/95 border border-white/15 shadow-glass p-6 sm:p-8 text-sm leading-relaxed text-ink-70">
         <button id="how-close" aria-label="Close" class="absolute top-3 right-3 h-8 w-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-ink-70">×</button>
         <h3 class="text-lg font-semibold text-ink-100 mb-3">How this forecast works</h3>
-        <p class="mb-3"><span class="text-ink-100 font-medium">Two models, one verdict.</span> We pull HRRR (NOAA's high-res convective model — sharp on Florida storms) and AIFS (ECMWF's AI global model). We compare them hour-by-hour.</p>
+        <p class="mb-3"><span class="text-ink-100 font-medium">Two models, one verdict.</span> We pull HRRR (NOAA's high-res convective model — sharp on Florida storms) and IFS (ECMWF's AI global model). We compare them hour-by-hour.</p>
         <p class="mb-3"><span class="text-ink-100 font-medium">When they agree, trust it.</span> When they disagree, the chart shows an amber band and the verdict softens to CAUTION. Disagreement is itself a forecast — your edge as a player is knowing the call is uncertain.</p>
         <p class="mb-3"><span class="text-ink-100 font-medium">Verdict tiers:</span> <span class="text-go font-semibold">GO</span> when peak rain stays under 35%. <span class="text-caution font-semibold">CAUTION</span> between 35–60% or when models disagree — playable, just have a backup. <span class="text-nogo font-semibold">HEAVY CAUTION</span> above 60% or with appreciable accumulation expected.</p>
         <p class="text-ink-50"><span class="text-ink-70 font-medium">~60 minutes before play</span>, also pull up <a href="https://www.rainviewer.com" target="_blank" rel="noopener" class="underline decoration-white/20 hover:decoration-white/60 text-ink-70">RainViewer</a> or RadarScope to scan for individual convective cells — radar trumps models inside the 1-hour window.</p>

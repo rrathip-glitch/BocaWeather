@@ -1,10 +1,10 @@
 // Tests for fetchForecast — the upstream Open-Meteo client.
 //
 // The bug we're reproducing: when the combined request `models=gfs_hrrr,
-// ecmwf_aifs025` returns successfully but the response body only contains
-// HRRR-suffixed variables (no AIFS keys at all), the original code blindly
+// ecmwf_ifs025` returns successfully but the response body only contains
+// HRRR-suffixed variables (no IFS keys at all), the original code blindly
 // marked both models as available. Downstream, the hourly array had null
-// AIFS probabilities, the chart rendered an empty magenta line, and the user
+// IFS probabilities, the chart rendered an empty magenta line, and the user
 // saw "Both models" branding with only one model of actual data.
 //
 // These tests use a fetch shim (global fetch override) so they run hermetic.
@@ -14,7 +14,7 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { fetchForecast, _clearCache } from "../lib/openMeteo.js";
-import { MODEL_HRRR, MODEL_AIFS } from "../lib/config.js";
+import { MODEL_HRRR, MODEL_IFS } from "../lib/config.js";
 
 // --- fetch shim ---------------------------------------------------------
 const realFetch = globalThis.fetch;
@@ -63,16 +63,16 @@ function bothModelsResponse() {
       time,
       [`precipitation_${MODEL_HRRR}`]: [0, 0, 0.05, 0.1],
       [`precipitation_probability_${MODEL_HRRR}`]: [10, 15, 60, 80],
-      [`precipitation_${MODEL_AIFS}`]: [0, 0, 0.02, 0.08],
-      [`precipitation_probability_${MODEL_AIFS}`]: [12, 18, 55, 75],
+      [`precipitation_${MODEL_IFS}`]: [0, 0, 0.02, 0.08],
+      [`precipitation_probability_${MODEL_IFS}`]: [12, 18, 55, 75],
       [`temperature_2m_${MODEL_HRRR}`]: [70, 71, 72, 73],
-      [`temperature_2m_${MODEL_AIFS}`]: [70, 71, 72, 73],
+      [`temperature_2m_${MODEL_IFS}`]: [70, 71, 72, 73],
       [`weathercode_${MODEL_HRRR}`]: [0, 1, 61, 65],
-      [`weathercode_${MODEL_AIFS}`]: [0, 1, 61, 65],
+      [`weathercode_${MODEL_IFS}`]: [0, 1, 61, 65],
       [`windspeed_10m_${MODEL_HRRR}`]: [5, 6, 8, 9],
-      [`windspeed_10m_${MODEL_AIFS}`]: [5, 6, 8, 9],
+      [`windspeed_10m_${MODEL_IFS}`]: [5, 6, 8, 9],
       [`wind_gusts_10m_${MODEL_HRRR}`]: [10, 12, 15, 17],
-      [`wind_gusts_10m_${MODEL_AIFS}`]: [10, 12, 15, 17]
+      [`wind_gusts_10m_${MODEL_IFS}`]: [10, 12, 15, 17]
     },
     daily: { time: ["2026-05-19"] }
   };
@@ -95,8 +95,8 @@ function hrrrOnlyCombinedResponse() {
   };
 }
 
-// AIFS single-model response (bare keys, no suffix).
-function aifsSingleModelResponse() {
+// IFS single-model response (bare keys, no suffix).
+function ifsSingleModelResponse() {
   const time = hourlyTime(4);
   return {
     hourly: {
@@ -114,31 +114,31 @@ function aifsSingleModelResponse() {
 
 // --- tests --------------------------------------------------------------
 
-test("combined response with both models → both marked available, AIFS data present", async () => {
+test("combined response with both models → both marked available, IFS data present", async () => {
   setFetchQueue([{ ok: true, status: 200, body: bothModelsResponse() }]);
 
   const { data, models } = await fetchForecast();
 
   assert.equal(models.hrrr.available, true);
-  assert.equal(models.aifs.available, true);
+  assert.equal(models.ifs.available, true);
 
-  // Verify AIFS variables made it through under their suffixed keys.
+  // Verify IFS variables made it through under their suffixed keys.
   assert.ok(
-    Array.isArray(data.hourly[`precipitation_probability_${MODEL_AIFS}`]),
-    "expected AIFS probability array on combined response"
+    Array.isArray(data.hourly[`precipitation_probability_${MODEL_IFS}`]),
+    "expected IFS probability array on combined response"
   );
   assert.deepEqual(
-    data.hourly[`precipitation_probability_${MODEL_AIFS}`],
+    data.hourly[`precipitation_probability_${MODEL_IFS}`],
     [12, 18, 55, 75]
   );
 });
 
-test("BUG REPRO: combined response has only HRRR variables → must NOT mark AIFS available, must attempt per-model fallback", async () => {
+test("BUG REPRO: combined response has only HRRR variables → must NOT mark IFS available, must attempt per-model fallback", async () => {
   // First call: combined request returns success but only HRRR keys.
-  // Second call (the fix): per-model AIFS fetch.
+  // Second call (the fix): per-model IFS fetch.
   setFetchQueue([
     { ok: true, status: 200, body: hrrrOnlyCombinedResponse() },
-    { ok: true, status: 200, body: aifsSingleModelResponse() }
+    { ok: true, status: 200, body: ifsSingleModelResponse() }
   ]);
 
   const { data, models } = await fetchForecast();
@@ -146,47 +146,47 @@ test("BUG REPRO: combined response has only HRRR variables → must NOT mark AIF
   // The fix's contract:
   assert.equal(models.hrrr.available, true, "HRRR must remain available");
   assert.equal(
-    models.aifs.available,
+    models.ifs.available,
     true,
-    "AIFS must be marked available AFTER per-model fallback re-fetches it"
+    "IFS must be marked available AFTER per-model fallback re-fetches it"
   );
 
   // The fallback path keys per-model bare variables with the model suffix
   // so the rest of the pipeline sees the same shape as a combined response.
   assert.ok(
-    Array.isArray(data.hourly[`precipitation_probability_${MODEL_AIFS}`]),
-    "AIFS probability array must exist after fallback merge"
+    Array.isArray(data.hourly[`precipitation_probability_${MODEL_IFS}`]),
+    "IFS probability array must exist after fallback merge"
   );
   assert.deepEqual(
-    data.hourly[`precipitation_probability_${MODEL_AIFS}`],
+    data.hourly[`precipitation_probability_${MODEL_IFS}`],
     [12, 18, 55, 75]
   );
 
   // The fix must have made the fallback call.
-  assert.equal(calls.length, 2, "expected combined + per-model AIFS fetch");
+  assert.equal(calls.length, 2, "expected combined + per-model IFS fetch");
   assert.ok(
-    calls[1].includes(`models=${MODEL_AIFS}`),
-    `second call should be the per-model AIFS fetch — saw: ${calls[1]}`
+    calls[1].includes(`models=${MODEL_IFS}`),
+    `second call should be the per-model IFS fetch — saw: ${calls[1]}`
   );
 });
 
-test("combined OK + HRRR-only, AND per-model AIFS fallback also fails → AIFS marked unavailable, HRRR-only mode", async () => {
+test("combined OK + HRRR-only, AND per-model IFS fallback also fails → IFS marked unavailable, HRRR-only mode", async () => {
   setFetchQueue([
     { ok: true, status: 200, body: hrrrOnlyCombinedResponse() },
-    { ok: false, status: 503, body: "AIFS upstream down" }
+    { ok: false, status: 503, body: "IFS upstream down" }
   ]);
 
   const { data, models } = await fetchForecast();
 
   assert.equal(models.hrrr.available, true);
   assert.equal(
-    models.aifs.available,
+    models.ifs.available,
     false,
-    "AIFS must be marked unavailable when both combined and per-model fail to surface it"
+    "IFS must be marked unavailable when both combined and per-model fail to surface it"
   );
   assert.ok(
-    models.aifs.error,
-    "AIFS error message should be populated for debugging"
+    models.ifs.error,
+    "IFS error message should be populated for debugging"
   );
 
   // HRRR data must still be intact.
@@ -218,20 +218,20 @@ test("combined request fails entirely → per-model fallback for both models", a
     {
       ok: true,
       status: 200,
-      body: aifsSingleModelResponse()
+      body: ifsSingleModelResponse()
     }
   ]);
 
   const { models } = await fetchForecast();
   assert.equal(models.hrrr.available, true);
-  assert.equal(models.aifs.available, true);
+  assert.equal(models.ifs.available, true);
 });
 
 test("combined fails + both per-model fail → throws", async () => {
   setFetchQueue([
     { ok: false, status: 500, body: "combined fail" },
     { ok: false, status: 500, body: "hrrr fail" },
-    { ok: false, status: 500, body: "aifs fail" }
+    { ok: false, status: 500, body: "ifs fail" }
   ]);
 
   await assert.rejects(() => fetchForecast(), /All models failed/);
