@@ -50,6 +50,10 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+  <!-- Leaflet (for live radar) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body class="font-sans text-ink-100 min-h-screen antialiased selection:bg-white/20">
@@ -71,24 +75,38 @@
         </div>
       </div>
 
-      <!-- Right-now strip -->
-      <div id="now-strip" class="hidden sm:flex items-center gap-4 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-xl text-xs">
-        <div class="flex items-center gap-1.5">
-          <span class="text-ink-50">Now</span>
-          <span id="now-temp" class="font-semibold text-ink-100">—</span>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Right-now strip -->
+        <div id="now-strip" class="hidden sm:flex items-center gap-4 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-xl text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="text-ink-50">Now</span>
+            <span id="now-temp" class="font-semibold text-ink-100">—</span>
+          </div>
+          <span class="h-3 w-px bg-white/15"></span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-ink-50">Rain</span>
+            <span id="now-rain" class="font-semibold text-ink-100">—</span>
+          </div>
+          <span class="h-3 w-px bg-white/15"></span>
+          <div class="flex items-center gap-1.5">
+            <span id="now-agree-dot" class="h-1.5 w-1.5 rounded-full bg-white/30"></span>
+            <span id="now-agree-text" class="text-ink-70">Loading</span>
+          </div>
         </div>
-        <span class="h-3 w-px bg-white/15"></span>
-        <div class="flex items-center gap-1.5">
-          <span class="text-ink-50">Rain</span>
-          <span id="now-rain" class="font-semibold text-ink-100">—</span>
-        </div>
-        <span class="h-3 w-px bg-white/15"></span>
-        <div class="flex items-center gap-1.5">
-          <span id="now-agree-dot" class="h-1.5 w-1.5 rounded-full bg-white/30"></span>
-          <span id="now-agree-text" class="text-ink-70">Loading</span>
-        </div>
+
+        <!-- Manual refresh button -->
+        <button id="refresh-btn" type="button" title="Refresh forecast" aria-label="Refresh forecast"
+          class="refresh-btn h-10 w-10 sm:h-11 sm:w-11 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 backdrop-blur-xl grid place-items-center text-ink-70 hover:text-ink-100 transition shadow-glass">
+          <svg class="refresh-icon h-4 w-4 sm:h-[18px] sm:w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-3.51-7.13" />
+            <polyline points="21 4 21 10 15 10" />
+          </svg>
+        </button>
       </div>
     </header>
+
+    <!-- Refresh toast (out of header flow so it doesn't shift layout) -->
+    <div id="refresh-toast" class="refresh-toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <!-- ====================== HERO VERDICT ====================== -->
     <section id="hero" class="relative mb-10 sm:mb-14">
@@ -97,9 +115,12 @@
 
       <div class="relative rounded-3xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl shadow-glass px-6 sm:px-12 py-10 sm:py-14 overflow-hidden">
         <div class="flex flex-col items-start gap-5">
-          <!-- Date small caps -->
-          <div id="hero-date" class="text-[11px] sm:text-xs uppercase tracking-[0.28em] text-ink-70 font-semibold">
-            <span class="skeleton skeleton-text inline-block w-48 h-3"></span>
+          <!-- Prominent forecast date block -->
+          <div class="flex flex-col items-start gap-1.5">
+            <div class="text-[10px] sm:text-xs uppercase tracking-[0.28em] text-white/50 font-semibold">Forecast for</div>
+            <div id="hero-date" class="text-xl sm:text-2xl lg:text-3xl font-semibold tracking-wide text-slate-100">
+              <span class="skeleton skeleton-text inline-block w-56 sm:w-72 h-6 sm:h-8"></span>
+            </div>
           </div>
 
           <!-- The massive verdict -->
@@ -178,6 +199,52 @@
               <div class="text-ink-50">Vertical amber bands flag hours where the models diverge.</div>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================== LIVE RADAR ====================== -->
+    <section class="mb-10 sm:mb-14" aria-labelledby="radar-heading">
+      <div class="flex items-end justify-between mb-4 sm:mb-5">
+        <div>
+          <h2 id="radar-heading" class="text-lg sm:text-xl font-semibold">Live Radar</h2>
+          <p class="text-xs sm:text-sm text-ink-50 mt-0.5">Past two hours plus nowcast — when models disagree, trust the scan.</p>
+        </div>
+        <div class="text-xs text-ink-50">RainViewer</div>
+      </div>
+
+      <div class="rounded-2xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl shadow-glass p-3 sm:p-4">
+        <div class="relative">
+          <div id="radar-map" class="radar-map" role="img" aria-label="Precipitation radar centered on Santa Barbara, Boca Raton"></div>
+          <div id="radar-fallback" class="radar-fallback hidden">Radar temporarily unavailable. Check <a href="https://www.rainviewer.com" target="_blank" rel="noopener" class="underline decoration-white/30 hover:decoration-white/70">rainviewer.com</a></div>
+        </div>
+
+        <!-- Animation controls -->
+        <div class="radar-controls mt-3 sm:mt-4">
+          <button id="radar-play" type="button" title="Play/Pause" aria-label="Play or pause radar animation"
+            class="radar-play-btn h-9 w-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 grid place-items-center text-ink-70 hover:text-ink-100 transition flex-none">
+            <svg class="radar-play-icon h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <polygon points="6 4 20 12 6 20 6 4" />
+            </svg>
+            <svg class="radar-pause-icon h-3.5 w-3.5 hidden" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="4" width="4" height="16" rx="1" />
+              <rect x="14" y="4" width="4" height="16" rx="1" />
+            </svg>
+          </button>
+          <input id="radar-slider" type="range" min="0" max="0" value="0" step="1" class="radar-slider" aria-label="Radar frame timeline" />
+          <div id="radar-time" class="radar-time tabular-nums">—</div>
+        </div>
+
+        <div class="mt-3 text-[10px] sm:text-[11px] text-ink-50 flex items-center gap-3 flex-wrap">
+          <span class="inline-flex items-center gap-1.5">
+            <span class="h-1.5 w-3 rounded-full bg-[#7dd3fc]/70"></span>
+            <span>Past</span>
+          </span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="h-1.5 w-3 rounded-full bg-caution/70"></span>
+            <span>Nowcast</span>
+          </span>
+          <span class="ml-auto">Radar by RainViewer · Map by CARTO/OpenStreetMap</span>
         </div>
       </div>
     </section>

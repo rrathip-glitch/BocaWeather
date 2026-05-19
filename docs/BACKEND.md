@@ -29,19 +29,45 @@ HRRR covers CONUS only, so it always works for Boca Raton. AIFS is global and ve
 
 ## Verdict thresholds
 
-Computed in `lib/forecast.js`. The same rules apply both to the overall tomorrow verdict and to each tennis-window verdict.
+Computed in `lib/forecast.js`. The **daily** verdict and the per-**window** verdicts use different rules.
+
+### Daily verdict (tennis-hours-scoped)
+
+The daily verdict is computed over the 16 tennis hours of tomorrow: local hours `06:00` through `21:00` inclusive (`TENNIS_DAY_START_HOUR..TENNIS_DAY_END_HOUR` in `lib/forecast.js`). Pre-dawn rain that has cleared by sunrise does not drag a clear afternoon down — that was the explicit motivation for moving from a 24h-wide check to this window.
+
+Tennis-hours stats:
+
+- `heavyHours` — count of tennis hours where `rain_probability_consensus >= 60`.
+- `tennisPrecip` — sum of `precipitation_in_consensus` across tennis hours.
+- `peakTennisProb` — max `rain_probability_consensus` across tennis hours.
+- `meanTennisProb` — mean `rain_probability_consensus` across tennis hours.
+- `disagreementAtRiskyHour` — any tennis hour with `disagreement === true` AND `rain_probability_consensus >= 35`.
+
+| Verdict   | Trigger                                                                                              |
+| --------- | ---------------------------------------------------------------------------------------------------- |
+| `NO_GO`   | `heavyHours >= 6` **OR** `tennisPrecip >= 0.4` in                                                    |
+| `CAUTION` | `peakTennisProb >= 50` **OR** `tennisPrecip >= 0.1` in **OR** `disagreementAtRiskyHour`              |
+| `GO`      | none of the above                                                                                    |
+
+`tomorrow.rain_probability_max` and `tomorrow.rain_probability_mean` in the API response are `peakTennisProb` and `meanTennisProb` respectively — not the full-day stats. `tomorrow.precipitation_sum_in` is still the Open-Meteo daily total.
+
+The named constants live at the top of `lib/forecast.js` (`TENNIS_DAY_START_HOUR`, `TENNIS_DAY_END_HOUR`, `NOGO_HEAVY_HOURS`, `NOGO_HEAVY_PROB`, `NOGO_PRECIP_IN`, `CAUTION_PEAK_PROB`, `CAUTION_PRECIP_IN`, `CAUTION_DISAGREEMENT_PROB`).
+
+### Window verdict (per Morning / Midday / Afternoon / Evening)
+
+Each tennis window keeps the older threshold rules, applied only to the hours inside that window:
 
 | Verdict   | Trigger                                                                                                                                                                                |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NO_GO`   | Max hourly precipitation probability > 60% **OR** precipitation_sum > 0.2 inch                                                                                                         |
-| `CAUTION` | Max hourly probability between 35% and 60% **OR** precipitation_sum between 0.05 and 0.2 inch **OR** models disagree by more than 30 percentage points at any hour in the daytime window |
+| `CAUTION` | Max hourly probability between 35% and 60% **OR** precipitation_sum between 0.05 and 0.2 inch **OR** any hour in the window has model disagreement                                     |
 | `GO`      | Max hourly probability < 35% **AND** precipitation_sum < 0.05 inch **AND** models agree                                                                                                |
 
 **Hourly disagreement flag:** `|prob_hrrr - prob_aifs| > 25` percentage points. Used to render the per-hour `disagreement: true` chip.
 
-**Daily disagreement (for verdict):** Any hour in 8am-8pm with `|prob_hrrr - prob_aifs| > 30` percentage points → bumps a clean GO to CAUTION.
+**Daily disagreement (informational only):** Tracked over the tennis hours; a peak diff > 30 percentage points sets the daily disagreement flag but no longer auto-promotes verdicts — `disagreementAtRiskyHour` is the gate that actually moves a daily GO to CAUTION.
 
-**Daily model agreement label:** `DISAGREE` if any hour in 8am-8pm has `disagreement: true`, else `AGREE`.
+**Daily model agreement label:** `DISAGREE` if any tennis hour has `disagreement: true`, else `AGREE`.
 
 **Consensus probability:** Simple mean of the two models at each hour. If only one model is available, the consensus equals that single model and `uncertainty_note` is set.
 

@@ -13,6 +13,7 @@ External CDN dependencies:
 
 - [Tailwind CSS](https://cdn.tailwindcss.com) — utility classes for layout/typography.
 - [Chart.js 4.4.1](https://cdn.jsdelivr.net/npm/chart.js) — hourly rain timeline chart.
+- [Leaflet 1.9.4](https://unpkg.com/leaflet@1.9.4) — interactive map for the Live Radar section.
 - [Inter](https://fonts.google.com/specimen/Inter) via Google Fonts — typography.
 
 ## 1. Component structure
@@ -22,13 +23,15 @@ The page is a single scroll. Sections render top-to-bottom into containers in `i
 | Section            | DOM root                       | Render function in `app.js`     | Purpose                                                                 |
 | ------------------ | ------------------------------ | ------------------------------- | ----------------------------------------------------------------------- |
 | Header + now strip | `<header>` / `#now-strip`      | `renderNowStrip(data)`          | Branding plus current temp / rain % / model agreement dot.              |
-| Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Massive GO / CAUTION / NO-GO with reason, agreement chip, quick stats. |
-| Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills.    |
+| Refresh button     | `#refresh-btn` (in header)     | `wireRefreshButton()` (boot)    | Manual refresh forcing `?refresh=1`; spinner during fetch, toast on done. |
+| Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Massive GO / CAUTION / NO-GO with reason, agreement chip, quick stats.  |
+| Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills.     |
 | Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & AIFS lines, night/disagree bands. |
-| Hourly strip       | `#hourly-strip`                | `renderHourlyStrip(data)`       | Horizontally scrollable 24-hour chip strip.                            |
-| Footer             | `#generated-info`              | `renderFooter(data)`            | "Forecast generated at HH:MM EDT · cached/fresh" + data attribution.   |
+| Live Radar         | `#radar-map` + controls        | `initRadar()` / `renderRadar()` | Leaflet + CartoDB base, RainViewer animated radar overlay, pulsing pin. |
+| Hourly strip       | `#hourly-strip`                | `renderHourlyStrip(data)`       | Horizontally scrollable 24-hour chip strip.                             |
+| Footer             | `#generated-info`              | `renderFooter(data)`            | "Forecast generated at HH:MM EDT · cached/fresh" + data attribution.    |
 | Error fallback     | `#error-state` (hidden)        | `showError()` / `hideError()`   | Friendly card with retry button on fetch failure.                       |
-| "How this works"   | `#how-it-works` (modal)        | `wireHowItWorks()`              | Explains dual-model methodology, verdict thresholds, radar add-on tip. |
+| "How this works"   | `#how-it-works` (modal)        | `wireHowItWorks()`              | Explains dual-model methodology, verdict thresholds, radar add-on tip.  |
 
 Other concerns:
 
@@ -47,6 +50,98 @@ Model disagreement appears in **four** places, intentionally redundant:
 4. **Hourly strip chips** — amber border ring (`.is-disagree`) and a tiny "⚠ split" label.
 
 A reviewer who removes one of these breaks the product thesis. See [`docs/AGENT_HANDOFF.md` § 4 invariant 5](./AGENT_HANDOFF.md#4-critical-invariants--do-not-break).
+
+### Refresh button
+
+A circular icon button sits in the header next to the now-strip pill (visible at every breakpoint — the now-strip itself is `sm:` only, the button is always shown). Visual: glass surface (`bg-white/5`, `border border-white/10`, `backdrop-blur-xl`), inline SVG refresh glyph, no emoji.
+
+Behavior, fully owned by `wireRefreshButton()` in `app.js`:
+
+1. On click, disable the button and add `.is-refreshing` — that class drives a CSS `@keyframes spin` rotation on the inner SVG at 600 ms per turn.
+2. Call `loadForecast({ refresh: true })`. The contract for `loadForecast`:
+   ```js
+   loadForecast({ refresh: false })  // default — uses /api/forecast (server cache OK)
+   loadForecast({ refresh: true })   // appends ?refresh=1 — backend bypasses its cache
+   ```
+   The 10-minute auto-refresh and the `visibilitychange` re-fetch both call the default. Only the header button forces `?refresh=1`. This protects upstream models from refresh storms while still giving the user an instant escape hatch.
+3. On success, the renderers run as usual and a transient "Updated" toast (`#refresh-toast`) fades in for 2 s. On failure, the toast reads "Refresh failed" with a red accent and the last-good payload stays on screen.
+4. The button always re-enables in `finally`. The spin animation stops instantly when the class is removed.
+5. Tooltip: `title="Refresh forecast"`; accessible label via `aria-label`.
+
+The toast is rendered as a fixed-position pill (`.refresh-toast`) outside the header flow so it never shifts layout. The same helper (`showToast(msg, kind)`) is reusable for any future status nudge.
+
+### Hero date display
+
+Above the verdict word, two stacked elements:
+
+```
+FORECAST FOR              ← uppercase, text-xs, tracking-[0.28em], text-white/50, 600
+Wednesday, May 20, 2026   ← text-xl → text-2xl → text-3xl, tracking-wide, text-slate-100, 600
+GO                        ← the existing massive verdict, unchanged
+```
+
+The exact format `Wednesday, May 20, 2026` comes from `fmtDateFull(parseLocalDate(t.date))` in `app.js`:
+
+- `Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })`.
+- **Noon-local parse trick.** Backend sends `tomorrow.date` as `"YYYY-MM-DD"`. `new Date("2026-05-20")` interprets that as **UTC midnight**, so any negative-offset viewer (the entire Americas) drifts one calendar day backward — May 20 renders as May 19. `parseLocalDate(ymd)` builds `new Date("${ymd}T12:00:00")` instead: an unambiguous noon **local** wall-clock that lands inside May 20 in every timezone on Earth. The subsequent `Intl.DateTimeFormat` then re-projects safely into Eastern Time.
+
+The label-above-value pattern is hand-rolled in `index.html`; the dynamic line lives at `#hero-date`.
+
+### Live Radar
+
+Architecture: **Leaflet** map + **CartoDB Dark Matter** base tiles (matches the ocean palette) + **RainViewer** animated precipitation overlay + a pulsing palm-green pin at the home location.
+
+```
+init: index.html        boots Leaflet (defer) → app.js initRadar() once on init()
+data: fetch https://api.rainviewer.com/public/weather-maps.json
+      → frames = [...radar.past, ...radar.nowcast]
+      → first frame goes on the map at opacity 0.75
+      → autoplay loops at ~500ms/frame, pauses 1.5s on the last frame
+```
+
+Tile URL template per frame:
+```
+${host}${path}/256/{z}/{x}/{y}/${RADAR_COLOR}/1_1.png
+```
+
+#### Swapping the color palette
+`RADAR_COLOR` is a top-level constant in `app.js`. Valid RainViewer color codes:
+
+| code | scheme              | notes                                 |
+| ---- | ------------------- | ------------------------------------- |
+| 0    | Black & White       | minimal, prints well                  |
+| 1    | Original            | RainViewer default                    |
+| 2    | Universal Blue      | **current** — clean on dark theme     |
+| 3    | TITAN               |                                       |
+| 4    | The Weather Channel | familiar to US viewers                |
+| 5    | Meteored            |                                       |
+| 6    | NEXRAD              | matches NWS color ramp                |
+| 7    | Rainbow             | high contrast                         |
+| 8    | Dark                | for light themes                      |
+
+The trailing `/1_1` means "smoothed tiles, include snow". Change to `/0_0` for raw + no snow.
+
+#### Changing zoom / center
+`RADAR_CENTER` (`[lat, lon]`) and the `zoom`/`minZoom`/`maxZoom` arguments to `L.map(...)` are all in `initRadar()`. Default `zoom: 9` shows South Florida from West Palm down past Miami; `minZoom: 7` prevents users from zooming to the globe; `maxZoom: 12` avoids tile pixelation.
+
+`scrollWheelZoom: false` is deliberate — on a long-scroll page, capturing the wheel inside an embedded map is a UX hostile pattern. Users zoom via the `+`/`−` buttons or pinch.
+
+#### Animation loop
+`startRadarAutoplay()` runs a self-rescheduling `setTimeout` chain:
+- step delay = `RADAR_FRAME_MS` (500 ms) for normal advance, `RADAR_LOOP_PAUSE_MS` (1500 ms) when sitting on the last frame before wrapping back to 0.
+- `showRadarFrame(index)` is the swap primitive: add the next `L.tileLayer` to the map first, then remove the previous one. The order matters — flipping it produces a one-tick gap where the map looks blank.
+- All built layers are cached in `radarState.layers[index]` so scrubbing back and forth never re-downloads tiles.
+- Dragging the slider stops autoplay and jumps directly to that frame.
+- Clicking play/pause is the only way to restart autoplay after a manual scrub.
+
+#### Past vs. nowcast distinction
+The timeline slider's track is a CSS linear-gradient split between two accent colors (ocean blue for past frames, caution amber for nowcast) at the boundary computed from `past.length / frames.length`. The thumb color flips amber while a nowcast frame is selected. The time label reads absolute local time for past frames (`3:30 PM`) and a relative offset for nowcast (`+30 min`).
+
+#### Error handling
+If `weather-maps.json` fails or returns zero frames, `showRadarFallback()` reveals `#radar-fallback` (a glass overlay inside the card with "Radar temporarily unavailable. Check rainviewer.com") and disables the playback controls. **The base map and the pulsing marker remain visible underneath** — the user still gets a sense of place.
+
+#### Attribution
+A small footer inside the card reads `Radar by RainViewer · Map by CARTO/OpenStreetMap` and is paired with a tiny color legend so the past/nowcast slider colors are self-explanatory.
 
 ## 2. How to swap the color palette
 

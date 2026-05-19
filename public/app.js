@@ -28,6 +28,15 @@
     weekday: 'long', month: 'long', day: 'numeric', timeZone: TZ
   }).format(d);
 
+  // Full standard format including the year — e.g. "Wednesday, May 20, 2026".
+  const fmtDateFull = (d) => new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: TZ
+  }).format(d);
+
+  // Parse a "YYYY-MM-DD" string as noon LOCAL — keeps it on the intended calendar day
+  // regardless of viewer timezone (avoids "2026-05-20" → previous-day drift in -HHMM zones).
+  const parseLocalDate = (ymd) => new Date(`${ymd}T12:00:00`);
+
   const fmtTimeShort = (d) => new Intl.DateTimeFormat('en-US', {
     hour: 'numeric', timeZone: TZ
   }).format(d);
@@ -97,24 +106,31 @@
   // ============================================================
   // Fetch + lifecycle
   // ============================================================
-  async function loadForecast() {
+  // `refresh: true` appends ?refresh=1 to force the backend to bypass its cache.
+  // The 10-min auto-refresh and the visibilitychange handler use the default
+  // (cached); only the manual header button forces a refresh.
+  async function loadForecast(opts = {}) {
+    const { refresh = false } = opts;
+    const url = refresh ? `${API_URL}?refresh=1` : API_URL;
     try {
-      const res = await fetch(API_URL, { headers: { 'Accept': 'application/json' } });
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       hideError();
       lastPayload = data;
       renderAll(data);
+      return data;
     } catch (err) {
       console.error('[forecast] load failed', err);
       // If we already have data, keep showing it. Only show error if first load.
       if (!lastPayload) showError(err.message || 'Network error');
+      throw err;
     }
   }
 
   function scheduleRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(loadForecast, REFRESH_MS);
+    refreshTimer = setInterval(() => loadForecast(), REFRESH_MS);
   }
 
   function showError(msg) {
@@ -137,6 +153,7 @@
     renderNowStrip(data);
     renderTennisWindows(data);
     renderHourlyChart(data);
+    renderRadar(data);
     renderHourlyStrip(data);
     renderFooter(data);
   }
@@ -156,12 +173,13 @@
     const glow = $('#hero-glow');
     glow.className = `hero-glow glow-${vClass}`;
 
-    // Date — parse YYYY-MM-DD as noon UTC to safely format the calendar date in NY tz
-    // (avoids DST edge cases vs. fixed-offset parsing).
-    const dateLong = fmtDateLong(new Date(t.date + 'T17:00:00Z'));
+    // Date — parse "YYYY-MM-DD" as noon LOCAL so the calendar day never drifts
+    // backward in negative-offset zones. Format with the full standard pattern,
+    // e.g. "Wednesday, May 20, 2026".
+    const dateLong = fmtDateFull(parseLocalDate(t.date));
     const dateEl = $('#hero-date');
     dateEl.innerHTML = '';
-    dateEl.textContent = `Tomorrow · ${dateLong}`;
+    dateEl.textContent = dateLong;
     dateEl.classList.add('anim-fade-up');
 
     // Reason
@@ -518,6 +536,276 @@
   }
 
   // ============================================================
+  // Toast (transient status pill)
+  // ============================================================
+  let toastTimer = null;
+  function showToast(msg, kind = 'ok', ms = 2000) {
+    const el = $('#refresh-toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('is-ok', 'is-error');
+    el.classList.add(kind === 'error' ? 'is-error' : 'is-ok', 'is-visible');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('is-visible'), ms);
+  }
+
+  // ============================================================
+  // Manual refresh button
+  // ============================================================
+  function wireRefreshButton() {
+    const btn = $('#refresh-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add('is-refreshing');
+      try {
+        await loadForecast({ refresh: true });
+        showToast('Updated', 'ok');
+      } catch (err) {
+        showToast('Refresh failed', 'error');
+      } finally {
+        btn.classList.remove('is-refreshing');
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ============================================================
+  // Live Radar (Leaflet + RainViewer)
+  // ============================================================
+  const RADAR_CENTER = [26.3683, -80.1289];
+  const RADAR_API = 'https://api.rainviewer.com/public/weather-maps.json';
+  const RADAR_FRAME_MS = 500;
+  const RADAR_LOOP_PAUSE_MS = 1500;
+  // RainViewer color schemes: 0=BW, 1=Original, 2=Universal Blue, 3=TITAN,
+  // 4=Weather Channel, 5=Meteored, 6=NEXRAD, 7=Rainbow, 8=Dark.
+  const RADAR_COLOR = 2;
+
+  const radarState = {
+    map: null,
+    host: '',
+    frames: [],       // [{ time, path, kind: 'past' | 'nowcast' }]
+    pastCount: 0,
+    layers: {},       // index → L.tileLayer
+    activeLayer: null,
+    activeIndex: -1,
+    playing: false,
+    playTimer: null,
+    booted: false,
+  };
+
+  function initRadar() {
+    if (radarState.booted) return;
+    if (typeof L === 'undefined') {
+      // Leaflet loads with `defer`; if it isn't ready yet, retry once DOM settles.
+      window.addEventListener('load', initRadar, { once: true });
+      return;
+    }
+    const host = document.getElementById('radar-map');
+    if (!host) return;
+    radarState.booted = true;
+
+    const map = L.map(host, {
+      center: RADAR_CENTER,
+      zoom: 9,
+      minZoom: 7,
+      maxZoom: 12,
+      zoomControl: true,
+      scrollWheelZoom: false,
+      attributionControl: true,
+    });
+    radarState.map = map;
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+      pane: 'shadowPane',
+      attribution: '',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // Custom pulsing marker at the home location.
+    const icon = L.divIcon({
+      className: 'radar-marker-wrap',
+      html: '<div class="radar-marker" aria-hidden="true"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+    L.marker(RADAR_CENTER, { icon, keyboard: false, interactive: false }).addTo(map);
+
+    wireRadarControls();
+    loadRadarFrames();
+  }
+
+  async function loadRadarFrames() {
+    try {
+      const res = await fetch(RADAR_API, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`RainViewer responded ${res.status}`);
+      const data = await res.json();
+      const host = data.host;
+      const past = (data.radar && data.radar.past) || [];
+      const nowcast = (data.radar && data.radar.nowcast) || [];
+      const frames = [
+        ...past.map(f => ({ ...f, kind: 'past' })),
+        ...nowcast.map(f => ({ ...f, kind: 'nowcast' })),
+      ];
+      if (!frames.length) throw new Error('No radar frames available');
+
+      radarState.host = host;
+      radarState.frames = frames;
+      radarState.pastCount = past.length;
+
+      const slider = $('#radar-slider');
+      if (slider) {
+        slider.max = String(frames.length - 1);
+        slider.value = '0';
+        const pastPct = frames.length > 1
+          ? Math.round((past.length / frames.length) * 100)
+          : 100;
+        slider.style.setProperty('--past-pct', `${pastPct}%`);
+      }
+
+      showRadarFrame(0);
+      startRadarAutoplay();
+    } catch (err) {
+      console.error('[radar] load failed', err);
+      showRadarFallback();
+    }
+  }
+
+  function showRadarFallback() {
+    const fb = $('#radar-fallback');
+    if (fb) fb.classList.remove('hidden');
+    // Disable controls — but leave the base map visible underneath.
+    const slider = $('#radar-slider');
+    const playBtn = $('#radar-play');
+    if (slider) slider.disabled = true;
+    if (playBtn) playBtn.disabled = true;
+  }
+
+  function tileUrlForFrame(frame) {
+    // 256px tiles, color scheme, options "1_1" = smooth + snow.
+    return `${radarState.host}${frame.path}/256/{z}/{x}/{y}/${RADAR_COLOR}/1_1.png`;
+  }
+
+  function showRadarFrame(index) {
+    const { map, frames, layers, activeLayer } = radarState;
+    if (!map || !frames[index]) return;
+
+    // Reuse cached layer if present; otherwise build it.
+    let next = layers[index];
+    if (!next) {
+      next = L.tileLayer(tileUrlForFrame(frames[index]), {
+        opacity: 0.0,
+        attribution: '',
+        tileSize: 256,
+        crossOrigin: true,
+      });
+      layers[index] = next;
+    }
+
+    // Add the next layer first so the swap doesn't flicker, then drop the old.
+    next.addTo(map);
+    next.setOpacity(0.75);
+    if (activeLayer && activeLayer !== next) {
+      map.removeLayer(activeLayer);
+    }
+    radarState.activeLayer = next;
+    radarState.activeIndex = index;
+
+    updateRadarUi(index);
+  }
+
+  function updateRadarUi(index) {
+    const frame = radarState.frames[index];
+    if (!frame) return;
+    const slider = $('#radar-slider');
+    const timeEl = $('#radar-time');
+    if (slider && Number(slider.value) !== index) slider.value = String(index);
+
+    if (slider) {
+      slider.classList.toggle('is-nowcast-thumb', frame.kind === 'nowcast');
+    }
+
+    if (timeEl) {
+      timeEl.classList.toggle('is-nowcast', frame.kind === 'nowcast');
+      if (frame.kind === 'nowcast') {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const minsAhead = Math.max(0, Math.round((frame.time - nowSec) / 60));
+        timeEl.textContent = `+${minsAhead} min`;
+      } else {
+        timeEl.textContent = fmtTimeShort(new Date(frame.time * 1000));
+      }
+    }
+  }
+
+  function startRadarAutoplay() {
+    stopRadarAutoplay();
+    radarState.playing = true;
+    setRadarPlayIcon(true);
+
+    const step = () => {
+      const { activeIndex, frames } = radarState;
+      const isLast = activeIndex >= frames.length - 1;
+      const delay = isLast ? RADAR_LOOP_PAUSE_MS : RADAR_FRAME_MS;
+      radarState.playTimer = setTimeout(() => {
+        if (!radarState.playing) return;
+        const nextIndex = isLast ? 0 : activeIndex + 1;
+        showRadarFrame(nextIndex);
+        step();
+      }, delay);
+    };
+    step();
+  }
+
+  function stopRadarAutoplay() {
+    radarState.playing = false;
+    if (radarState.playTimer) {
+      clearTimeout(radarState.playTimer);
+      radarState.playTimer = null;
+    }
+    setRadarPlayIcon(false);
+  }
+
+  function setRadarPlayIcon(playing) {
+    const playIcon = document.querySelector('.radar-play-icon');
+    const pauseIcon = document.querySelector('.radar-pause-icon');
+    if (!playIcon || !pauseIcon) return;
+    playIcon.classList.toggle('hidden', playing);
+    pauseIcon.classList.toggle('hidden', !playing);
+  }
+
+  function wireRadarControls() {
+    const playBtn = $('#radar-play');
+    const slider = $('#radar-slider');
+    if (playBtn) {
+      playBtn.addEventListener('click', () => {
+        if (radarState.playing) stopRadarAutoplay();
+        else startRadarAutoplay();
+      });
+    }
+    if (slider) {
+      slider.addEventListener('input', () => {
+        stopRadarAutoplay();
+        const idx = Number(slider.value);
+        showRadarFrame(idx);
+      });
+    }
+  }
+
+  // `renderRadar` is intentionally a no-op: the radar lifecycle is independent
+  // of the forecast payload — it bootstraps once on init and self-refreshes
+  // through autoplay. Kept as a hook so future radar/forecast cross-talk
+  // (e.g. drop a pin per disagreement hour) has an obvious home.
+  function renderRadar(_data) { /* no-op */ }
+
+  // ============================================================
   // "How this works" popover
   // ============================================================
   function wireHowItWorks() {
@@ -545,8 +833,10 @@
   function init() {
     wireHowItWorks();
     wireRetry();
+    wireRefreshButton();
     loadForecast();
     scheduleRefresh();
+    initRadar();
 
     // Pause-refresh when tab hidden, resume + refresh on visible.
     document.addEventListener('visibilitychange', () => {

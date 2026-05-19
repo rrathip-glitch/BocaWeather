@@ -39,32 +39,39 @@ The UI is built so a disagreement does not look like an error. It looks like inf
 
 ## 3. Verdict thresholds
 
-The day-level verdict for "should I play tomorrow" is one of three values. The exact rules:
+The day-level verdict for "should I play tomorrow" is one of three values. All daily stats are scoped to **tennis hours**: the contiguous block 06:00 through 21:00 local time tomorrow (16 hourly slots, 06..21 inclusive). Daily verdicts use the 6am-9pm window because that's the tennis day. A 3am thunderstorm shouldn't change tomorrow's tennis verdict if afternoon is clear.
 
-### GO
+From those 16 tennis hours we compute:
 
-All of:
-
-- Max hourly precipitation probability across the day < 35%
-- Total precipitation sum for the day < 0.05 in
-- No hour with model disagreement > 25 percentage points at the peak hour
-
-### CAUTION
-
-Any of:
-
-- Max hourly precipitation probability between 35% and 60%
-- Models disagree by > 30 percentage points at the peak hour
-- Daily precipitation sum between 0.05 and 0.20 in
+- `heavyHours` — count of tennis hours with consensus rain probability ≥ 60%.
+- `tennisPrecip` — sum of consensus precipitation across the tennis hours, in inches.
+- `peakTennisProb` — max consensus rain probability across the tennis hours.
+- `disagreementAtRiskyHour` — true if any tennis hour has model disagreement AND consensus probability ≥ 35%.
 
 ### NO_GO
 
 Any of:
 
-- Max hourly precipitation probability > 60%
-- Daily precipitation sum > 0.20 in
+- `heavyHours >= 6` (six or more tennis hours at ≥ 60% rain chance)
+- `tennisPrecip >= 0.4` in (heavy total rainfall expected during play hours)
+
+### CAUTION
+
+Any of (and not already NO_GO):
+
+- `peakTennisProb >= 50` (a single hour with material rain risk)
+- `tennisPrecip >= 0.1` in
+- `disagreementAtRiskyHour` (models disagree at a meaningfully-wet hour)
+
+### GO
+
+None of the above.
+
+If multiple reasons apply, the response surfaces the most relevant one: NO_GO heavy-hours wins over NO_GO precip; CAUTION peak wins over CAUTION disagreement.
 
 These thresholds are tuned for tennis specifically: a tennis court takes 30-60 minutes to dry after a brief shower and is unplayable during one. They are not generic "is it sunny" thresholds and should not be reused for other activities without re-tuning.
+
+Window verdicts (Morning / Midday / Afternoon / Evening) remain scoped to their own hours with the original thresholds — see section 4. Only the daily verdict changed to the tennis-hours-scoped rules above.
 
 When changing these numbers, update this section of this document **in the same commit** as the code change. The thresholds are part of the product, not implementation details.
 

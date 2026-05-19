@@ -11,10 +11,27 @@ For the reasoning behind the response shape, see [DESIGN.md](./DESIGN.md).
 
 Returns the full tomorrow forecast for the configured location, with per-window guidance and full hourly arrays from both models.
 
+### Query parameters
+
+| Param     | Values          | Description                                                                                                                |
+| --------- | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `refresh` | `1` or `true`   | Bypass the in-memory cache and re-fetch from Open-Meteo. The fresh result is still written back to the cache so subsequent normal calls get the new value. When set, the response also sends `Cache-Control: no-store` so intermediaries don't serve stale data. |
+
+Example:
+
+```bash
+curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '.tomorrow'
+```
+
 ### Caching
 
-- Server-side: 10-minute in-memory cache. The Open-Meteo call is only made when the cache is cold or expired.
-- HTTP response header: `Cache-Control: public, max-age=300` (5 minutes). Edge caches and the browser may serve a slightly stale response for up to 5 minutes.
+- Server-side: 10-minute in-memory cache. The Open-Meteo call is only made when the cache is cold, expired, or explicitly bypassed via `?refresh=1`.
+- HTTP response header: `Cache-Control: public, max-age=300` (5 minutes) on normal requests; `no-store` when `?refresh=1` is used.
+- HTTP response header: `X-Cache: HIT` when the response was served from the in-memory cache, `X-Cache: MISS` when it required an upstream fetch (including all `?refresh=1` calls).
+
+### Tennis-hours-scoped daily stats
+
+`tomorrow.rain_probability_max` and `tomorrow.rain_probability_mean` are computed over the tennis hours only (06:00–21:00 local), not all 24 hours of tomorrow. See [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) for the rationale. `tomorrow.precipitation_sum_in` continues to reflect the full-day Open-Meteo daily total.
 
 ### Response: 200 OK
 

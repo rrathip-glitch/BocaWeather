@@ -20,11 +20,18 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, uptime: process.uptime() });
 });
 
-app.get("/api/forecast", async (_req, res, next) => {
+app.get("/api/forecast", async (req, res, next) => {
   try {
-    const raw = await fetchForecast();
+    const refresh = req.query.refresh;
+    const bypassCache = refresh === "1" || refresh === "true";
+    const raw = await fetchForecast({ bypassCache });
     const forecast = buildForecast(raw);
-    res.set("Cache-Control", "public, max-age=300");
+    res.set("X-Cache", raw.cached ? "HIT" : "MISS");
+    if (bypassCache) {
+      res.set("Cache-Control", "no-store");
+    } else {
+      res.set("Cache-Control", "public, max-age=300");
+    }
     res.json(forecast);
   } catch (err) {
     next(err);
