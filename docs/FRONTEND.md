@@ -24,9 +24,9 @@ The page is a single scroll. Sections render top-to-bottom into containers in `i
 | ------------------ | ------------------------------ | ------------------------------- | ----------------------------------------------------------------------- |
 | Header + now strip | `<header>` / `#now-strip`      | `renderNowStrip(data)`          | Branding plus current temp / rain % / model agreement dot.              |
 | Refresh button     | `#refresh-btn` (in header)     | `wireRefreshButton()` (boot)    | Manual refresh forcing `?refresh=1`; spinner during fetch, toast on done. |
-| Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Massive GO / CAUTION / NO-GO with reason, agreement chip, quick stats.  |
-| Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills.     |
-| Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & AIFS lines, night/disagree bands. |
+| Hero verdict       | `#hero` (verdict, date, chip)  | `renderHero(data)` (+ helpers)  | Tiered GO / CAUTION / HEAVY CAUTION with reason, subtitle pills, agreement chip, quick stats. |
+| Tennis windows     | `#windows-grid`                | `renderTennisWindows(data)`     | 4 cards: Morning / Midday / Afternoon / Evening with verdict pills + BEST badge on the safest slot. |
+| Hourly chart       | `#rain-chart` canvas           | `renderHourlyChart(data)`       | Chart.js combo: consensus bars + HRRR & AIFS lines, night/disagree bands, NOW line, sunrise/sunset markers. |
 | Live Radar         | `#radar-map` + controls        | `initRadar()` / `renderRadar()` | Leaflet + CartoDB base, RainViewer animated radar overlay, pulsing pin. |
 | Hourly strip       | `#hourly-strip`                | `renderHourlyStrip(data)`       | Horizontally scrollable 24-hour chip strip.                             |
 | Footer             | `#generated-info`              | `renderFooter(data)`            | "Forecast generated at HH:MM EDT · cached/fresh" + data attribution.    |
@@ -47,7 +47,7 @@ Model disagreement appears in **four** places, intentionally redundant:
 1. **Hero agreement chip** — green "Both models agree" or amber "Models disagree".
 2. **Now strip dot** — colored pulse + text label in the page header.
 3. **Hourly chart** — vertical amber gradient bands behind any hour where `disagreement: true`, plus a 6 px tick at the top.
-4. **Hourly strip chips** — amber border ring (`.is-disagree`) and a tiny "⚠ split" label.
+4. **Hourly strip chips** — amber border ring (`.is-disagree`) and a tiny "Split" indicator (inline SVG triangle + label, `.chip-split`).
 
 A reviewer who removes one of these breaks the product thesis. See [`docs/AGENT_HANDOFF.md` § 4 invariant 5](./AGENT_HANDOFF.md#4-critical-invariants--do-not-break).
 
@@ -86,6 +86,88 @@ The exact format `Wednesday, May 20, 2026` comes from `fmtDateFull(parseLocalDat
 - **Noon-local parse trick.** Backend sends `tomorrow.date` as `"YYYY-MM-DD"`. `new Date("2026-05-20")` interprets that as **UTC midnight**, so any negative-offset viewer (the entire Americas) drifts one calendar day backward — May 20 renders as May 19. `parseLocalDate(ymd)` builds `new Date("${ymd}T12:00:00")` instead: an unambiguous noon **local** wall-clock that lands inside May 20 in every timezone on Earth. The subsequent `Intl.DateTimeFormat` then re-projects safely into Eastern Time.
 
 The label-above-value pattern is hand-rolled in `index.html`; the dynamic line lives at `#hero-date`.
+
+### Verdict tier visual hierarchy
+
+The backend emits `verdict: "GO" | "LIGHT_CAUTION" | "HEAVY_CAUTION"`. The frontend renders three tiers with a deliberate three-step visual hierarchy — GO and HEAVY CAUTION both shout (in opposite directions), LIGHT CAUTION murmurs. The intent is that the hierarchy reads at a glance, without parsing the word.
+
+| Backend `verdict`  | Displayed word   | Tier class | Color (CSS var) | Font size                | Weight | Letter-spacing | Glow opacity |
+| ------------------ | ---------------- | ---------- | --------------- | ------------------------ | ------ | -------------- | ------------ |
+| `GO`               | `GO`             | `go`       | `--go`          | mobile 4.5rem / sm 8rem  | 900    | -0.06em        | 0.55         |
+| `LIGHT_CAUTION`    | `CAUTION`        | `light`    | `--caution`     | mobile 3.75rem / sm 6rem | 600    | -0.03em        | 0.30         |
+| `HEAVY_CAUTION`    | `HEAVY CAUTION`  | `heavy`    | `--nogo`        | mobile 4.5rem / sm 8rem  | 900    | -0.06em        | 0.55         |
+
+LIGHT CAUTION is roughly 75% of the GO/HEAVY visual weight by font size, plus a lighter font weight (semibold vs. black) and a notably softer glow (0.30 vs. 0.55). The label is also intentionally just `"CAUTION"` rather than `"LIGHT CAUTION"` — the calmer presentation does the work of "light", so the word stays short and human.
+
+Mapping lives in two helpers in `app.js`:
+
+```js
+verdictClass('GO')             // → 'go'      → .verdict-go,    .glow-go,    .acc-go,    .pill-go
+verdictClass('LIGHT_CAUTION')  // → 'light'   → .verdict-light, .glow-light, .acc-light, .pill-light
+verdictClass('HEAVY_CAUTION')  // → 'heavy'   → .verdict-heavy, .glow-heavy, .acc-heavy, .pill-heavy
+verdictLabel('LIGHT_CAUTION')  // → 'CAUTION' (just one word)
+verdictLabel('HEAVY_CAUTION')  // → 'HEAVY CAUTION'
+```
+
+Legacy values (`CAUTION`, `NO_GO`, `NO-GO`) are forward-compatibly mapped to `light` and `heavy` so a stale backend payload never breaks the render.
+
+The same tier classes drive the tennis-window card accents (`.window-card.acc-{tier}`) and the small verdict pills inside each card (`.verdict-pill.pill-{tier}`). The LIGHT pill uses a slightly less-saturated fill (`rgba(251, 191, 36, 0.10)`) and a softer border (`0.22`) than the GO/HEAVY pills (`0.15`/`0.30`).
+
+### Hero subtitle pills
+
+Below `#verdict-reason` is `#hero-pills`, a horizontal row of glass micro-pills (`.hero-pill`) that wrap on mobile. Each pill is conditionally rendered by `renderHeroPills(t)` — when the backend field is `null` or missing, the pill is skipped silently so the row never holds empty placeholders post-render. Render order (left → right):
+
+| Pill         | Renders when                       | Example string                       | Tone (CSS `data-tone`)             |
+| ------------ | ---------------------------------- | ------------------------------------ | ---------------------------------- |
+| First rain   | `tomorrow.first_rain_hour_local` is non-null | `Rain begins ~3:00 PM`               | `amber`                            |
+| Best window  | `tomorrow.best_window` is non-null | `Best window: Morning · 12%`         | `green` if best.verdict is GO, `amber` if LIGHT_CAUTION, `coral` if HEAVY_CAUTION |
+| Wind         | `tomorrow.wind_max_mph` is non-null | `Wind: 12 mph peak`                  | `slate`                            |
+| Confidence   | always                              | `Forecast confidence: High`          | `green` (HIGH), `amber` (MODERATE), `coral` (LOW) |
+
+Each pill exposes the relevant explanatory string via the native `title` attribute so hover/long-press reveals the context (the confidence pill specifically surfaces `tomorrow.confidence_note`).
+
+Skeleton state is rendered statically in `index.html` as four `.hero-pill.skeleton` shimmers — the same pill shape, no content. The first paint of `renderHeroPills` replaces them with real pills, each animated in via `.anim-fade-up` with a 60 ms-per-pill stagger.
+
+### BEST badge
+
+The tennis-window card whose `label` matches `tomorrow.best_window.label` gets a `.best-badge` overlay in its top-right corner — a tiny palm-green pill with an inline check SVG. If `best_window` is `null`, no badge renders. Style is subtle by design: low-opacity fill (`rgba(74, 222, 128, 0.10)`), low-contrast border, small uppercase letter-spacing, soft outer glow. It signals "this is the safer slot" without competing with the verdict pill on the same card.
+
+### Hero stats row
+
+The four-stat grid (`#hero-stats`) renders, in order:
+
+1. **Peak rain** — `Math.round(tomorrow.rain_probability_max)%` with a tiny colored dot (`rainTint`).
+2. **Wind (peak)** — `Math.round(tomorrow.wind_max_mph) mph`, or `—` when unavailable. Replaced the prior "Mean rain" stat, because mean is already implied by the consensus bar in the chart, and wind directly affects tennis playability (10+ mph kills the lob).
+3. **High** — `Math.round(tomorrow.temperature_high_f)°`.
+4. **Low** — `Math.round(tomorrow.temperature_low_f)°`.
+
+### Chart "NOW" line
+
+A vertical dashed white line at the current local time, drawn by the `nowLine` Chart.js plugin in `renderHourlyChart()`. Behavior:
+
+- The plugin runs in `afterDatasetsDraw` so it paints over the consensus bars and model lines.
+- X position is interpolated between adjacent hour buckets — same interpolation pattern as the sunrise/sunset markers — so the line lands at the correct fractional offset when "now" sits mid-hour.
+- Line: `rgba(240, 246, 252, 0.6)`, 1.5 px wide, dashed (2, 3).
+- Label: a tiny `NOW` chip in uppercase 9.5 px Inter at the top of the line.
+- If `now` falls outside the visible 36-hour window, the plugin no-ops silently.
+
+To disable, remove `nowPlugin` from the `plugins:` array at the bottom of the Chart constructor in `renderHourlyChart()`. Sunrise/sunset markers (the `sunMarkers` plugin) are independent and use the same interpolation helper.
+
+### Chart legend pills + HRRR/AIFS popovers
+
+Below the chart canvas (`.chart-legend`) is a row of four `.chart-legend-pill` items: HRRR, AIFS, Consensus, Models disagree — each with a colored swatch (`.legend-swatch`) that mirrors the in-chart styling (solid cyan for HRRR, dashed magenta for AIFS, cyan-fade bar for the consensus bar, amber-fade for the disagreement band).
+
+HRRR and AIFS additionally carry a tiny `(?)` icon button (`.legend-help`) with a popover tooltip (`.legend-popover`) explaining the model:
+
+- **HRRR** — *NOAA High-Resolution Rapid Refresh — 3 km US convective model. Best skill for Florida summer storms in the 18–48 h window.*
+- **AIFS** — *ECMWF Artificial Intelligence Forecasting System — global AI model with strong skill on synoptic patterns.*
+
+Popover behavior is double-implemented for input parity:
+
+1. **Desktop (hover-capable, fine pointer)** — pure CSS: `.chart-legend-pill:hover .legend-popover` reveals the tooltip. No JS needed.
+2. **Tap / keyboard** — `wireLegendPopovers()` toggles `aria-expanded` on the `.legend-help` button; CSS selector `.legend-help[aria-expanded="true"] + .legend-popover` reveals it. Outside-click and Escape both dismiss.
+
+The popover anchors to `bottom: calc(100% + 8px)` so it floats above the pill without colliding with the chart. Max width is 280 px so long copy wraps naturally.
 
 ### Live Radar
 

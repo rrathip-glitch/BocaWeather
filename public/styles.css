@@ -254,6 +254,24 @@ body {
   height: 100%;
   transition: width 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+/* "Split" indicator on hours where the two models disagree — inline SVG
+   triangle + label, no emoji. Mirrors the chart's amber disagree band. */
+.strip-chip .chip-split {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--caution);
+}
+.strip-chip .chip-split svg {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+}
 
 /* =================== Tennis window card =================== */
 .window-card {
