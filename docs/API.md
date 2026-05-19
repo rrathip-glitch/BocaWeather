@@ -140,34 +140,57 @@ This is a rename of the previous `GO` / `CAUTION` / `NO_GO` tiers. The selection
 
 ### Field reference
 
-| Field                          | Type                | Description                                                                                                  |
-| ------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `location.name`                | string              | Human-readable location label.                                                                               |
-| `location.lat`                 | number              | Latitude in decimal degrees.                                                                                 |
-| `location.lon`                 | number              | Longitude in decimal degrees.                                                                                |
-| `location.timezone`            | string              | IANA timezone. All hourly timestamps are in this zone.                                                       |
-| `generatedAt`                  | ISO 8601 string     | Server time the response was assembled. Useful for "last updated" UI.                                        |
-| `tomorrow.date`                | `YYYY-MM-DD` string | Local date being forecasted (always tomorrow in `location.timezone`).                                        |
-| `tomorrow.verdict`             | enum                | `GO` / `CAUTION` / `NO_GO`. See [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds).                     |
-| `tomorrow.reason`              | string              | Short human-readable explanation of why this verdict was chosen.                                             |
-| `tomorrow.maxProb`             | integer 0-100       | Maximum hourly consensus probability across tomorrow.                                                        |
-| `tomorrow.precipSumIn`         | number              | Total precipitation expected tomorrow, inches, consensus mean.                                               |
-| `tomorrow.peakHourLocal`       | `HH:mm` string      | Local hour with the highest consensus probability.                                                           |
-| `windows[]`                    | array of 4 objects  | Morning / Midday / Afternoon / Evening. Always in this order.                                                |
-| `windows[].verdict`            | enum                | Same enum, applied to that window's hours only.                                                              |
-| `windows[].maxProb`            | integer             | Max consensus probability in that window.                                                                    |
-| `windows[].precipSumIn`        | number              | Total precipitation expected in that window, inches.                                                         |
-| `windows[].disagree`           | boolean             | True if any hour in the window has model disagreement > 25 pp.                                               |
-| `hourly.timeLocal`             | string[]            | 24 entries, `YYYY-MM-DDTHH:mm` local time, midnight to 23:00 of `tomorrow.date`.                             |
-| `hourly.precipProbHrrr`        | (int\|null)[]       | HRRR precipitation probability per hour. `null` if HRRR fetch failed (see `models.hrrr.ok`).                 |
-| `hourly.precipProbAifs`        | (int\|null)[]       | AIFS precipitation probability per hour. `null` if AIFS fetch failed.                                        |
-| `hourly.precipProbMean`        | (int\|null)[]       | Simple average of the two. `null` if either model is missing for that hour.                                  |
-| `hourly.precipInHrrr`          | (number\|null)[]    | HRRR hourly precipitation, inches.                                                                           |
-| `hourly.precipInAifs`          | (number\|null)[]    | AIFS hourly precipitation, inches.                                                                           |
-| `hourly.disagree`              | boolean[]           | True where `abs(precipProbHrrr - precipProbAifs) > 25`.                                                      |
-| `models.hrrr.ok` / `aifs.ok`   | boolean             | True if that model returned data. If false, the corresponding hourly arrays are all `null` and the UI should warn. |
-| `cache.hit`                    | boolean             | True if this response was served from the in-memory cache.                                                   |
-| `cache.ageSeconds`             | integer             | Age of the cached upstream data in seconds. 0 if just fetched.                                               |
+| Field                                   | Type                | Description                                                                                                  |
+| --------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `location.name`                         | string              | Human-readable location label.                                                                               |
+| `location.lat`                          | number              | Latitude in decimal degrees.                                                                                 |
+| `location.lon`                          | number              | Longitude in decimal degrees.                                                                                |
+| `location.timezone`                     | string              | IANA timezone. All hourly timestamps are in this zone.                                                       |
+| `generated_at`                          | ISO 8601 string     | Server time the response was assembled. Useful for "last updated" UI.                                        |
+| `cached`                                | boolean             | True if this response was served from the 10-minute in-memory cache.                                         |
+| `tomorrow.date`                         | `YYYY-MM-DD` string | Local date being forecasted (always tomorrow in `location.timezone`).                                        |
+| `tomorrow.verdict`                      | enum                | `"GO" \| "LIGHT_CAUTION" \| "HEAVY_CAUTION"`. See [Verdict tier semantics](#verdict-tier-semantics).         |
+| `tomorrow.verdict_reason`               | string              | Short human-readable explanation of why this verdict was chosen.                                             |
+| `tomorrow.rain_probability_max`         | integer 0-100       | Maximum hourly consensus probability across tennis hours (06:00-21:00 local).                                |
+| `tomorrow.rain_probability_mean`        | integer 0-100       | Mean hourly consensus probability across tennis hours.                                                       |
+| `tomorrow.precipitation_sum_in`         | number              | Total precipitation expected tomorrow (full-day Open-Meteo daily total), inches.                             |
+| `tomorrow.temperature_high_f`           | number              | Forecast high temperature, Fahrenheit.                                                                       |
+| `tomorrow.temperature_low_f`            | number              | Forecast low temperature, Fahrenheit.                                                                        |
+| `tomorrow.sunrise`                      | ISO string          | Local sunrise timestamp.                                                                                     |
+| `tomorrow.sunset`                       | ISO string          | Local sunset timestamp.                                                                                      |
+| `tomorrow.model_agreement`              | enum                | `"AGREE" \| "DISAGREE"`. DISAGREE if any tennis hour has `disagreement: true`.                               |
+| `tomorrow.uncertainty_note`             | string \| null      | Set if only one model is available, otherwise `null`.                                                        |
+| `tomorrow.wind_max_mph`                 | integer \| null     | Max consensus wind across tennis hours, rounded. `null` if neither model returned wind data.                 |
+| `tomorrow.wind_mean_mph`                | integer \| null     | Mean consensus wind across tennis hours, rounded.                                                            |
+| `tomorrow.first_rain_time`              | ISO string \| null  | Timestamp of first tennis hour with `rain_probability_consensus >= 50`. `null` if no hour crosses 50%.       |
+| `tomorrow.first_rain_hour_local`        | string \| null      | Same hour formatted `"H:MM AM/PM"` (e.g. `"3:00 PM"`) in `location.timezone`. `null` when no first rain.     |
+| `tomorrow.best_window`                  | object \| null      | Best tennis window: `{ label, max_rain_prob, verdict }`. `null` if all four windows are `HEAVY_CAUTION`.     |
+| `tomorrow.confidence`                   | enum                | `"HIGH" \| "MODERATE" \| "LOW"`. Binned from mean per-hour absolute difference between HRRR and AIFS.        |
+| `tomorrow.confidence_note`              | string              | Human-readable note explaining the confidence rating.                                                        |
+| `tennis_windows[]`                      | array of 4 objects  | Morning / Midday / Afternoon / Evening. Always in this order.                                                |
+| `tennis_windows[].label`                | string              | `"Morning" \| "Midday" \| "Afternoon" \| "Evening"`.                                                         |
+| `tennis_windows[].start`                | ISO string          | First hour timestamp included in the window.                                                                 |
+| `tennis_windows[].end`                  | ISO string          | Last hour timestamp included in the window.                                                                  |
+| `tennis_windows[].verdict`              | enum                | `"GO" \| "LIGHT_CAUTION" \| "HEAVY_CAUTION"`, applied to that window's hours only.                           |
+| `tennis_windows[].max_rain_prob`        | integer             | Max consensus probability in that window.                                                                    |
+| `tennis_windows[].reason`               | string              | Short human-readable verdict reason for that window.                                                         |
+| `hourly[].time`                         | string              | Naive local timestamp `YYYY-MM-DDTHH:mm`.                                                                    |
+| `hourly[].hour_local`                   | string              | Local hour formatted `HH:00`.                                                                                |
+| `hourly[].is_tomorrow`                  | boolean             | True if the timestamp falls on `tomorrow.date`.                                                              |
+| `hourly[].rain_probability_hrrr`        | int \| null         | HRRR precipitation probability for this hour. `null` if HRRR is unavailable.                                 |
+| `hourly[].rain_probability_aifs`        | int \| null         | AIFS precipitation probability for this hour. `null` if AIFS is unavailable.                                 |
+| `hourly[].rain_probability_consensus`   | int                 | Mean of the two models (or whichever is available). Integer 0-100.                                           |
+| `hourly[].precipitation_in_hrrr`        | number \| null      | HRRR hourly precipitation, inches.                                                                           |
+| `hourly[].precipitation_in_aifs`        | number \| null      | AIFS hourly precipitation, inches.                                                                           |
+| `hourly[].precipitation_in_consensus`   | number              | Mean of the two models, inches.                                                                              |
+| `hourly[].disagreement`                 | boolean             | True where `abs(rain_probability_hrrr - rain_probability_aifs) > 25`.                                        |
+| `hourly[].temperature_f`                | number \| null      | Consensus temperature, Fahrenheit.                                                                           |
+| `hourly[].weathercode`                  | int \| null         | WMO weathercode (whichever model reports first).                                                             |
+| `hourly[].windspeed_10m_hrrr`           | number \| null      | HRRR wind speed at 10 m, mph.                                                                                |
+| `hourly[].windspeed_10m_aifs`           | number \| null      | AIFS wind speed at 10 m, mph.                                                                                |
+| `hourly[].windspeed_10m_consensus`      | number \| null      | Mean of the two model wind speeds, mph.                                                                      |
+| `models.hrrr.available` / `aifs.available` | boolean          | True if that model returned data this cycle.                                                                 |
+| `models.hrrr.id` / `aifs.id`            | string              | The Open-Meteo model identifier used (e.g. `gfs_hrrr`, `ecmwf_aifs025`).                                     |
 
 ### Error responses
 

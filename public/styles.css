@@ -280,9 +280,11 @@ body {
   pointer-events: none;
   opacity: 0.5;
 }
-.window-card.acc-go      { --accent-glow: rgba(74, 222, 128, 0.20); }
-.window-card.acc-caution { --accent-glow: rgba(251, 191, 36, 0.22); }
-.window-card.acc-nogo    { --accent-glow: rgba(248, 113, 113, 0.22); }
+/* Window-card accent glow per tier — keys match verdictClass() output:
+   go / light / heavy. Driven by the .acc-{tier} class on the card root. */
+.window-card.acc-go    { --accent-glow: rgba(74, 222, 128, 0.20); }
+.window-card.acc-light { --accent-glow: rgba(251, 191, 36, 0.14); }
+.window-card.acc-heavy { --accent-glow: rgba(248, 113, 113, 0.22); }
 
 .verdict-pill {
   display: inline-flex;
@@ -300,10 +302,6 @@ body {
    softer fill + lower-contrast border to feel calmer. */
 .pill-light   { background: rgba(251, 191, 36, 0.10);  color: var(--caution); border: 1px solid rgba(251, 191, 36, 0.22); letter-spacing: 0.18em; }
 .pill-heavy   { background: rgba(248, 113, 113, 0.15); color: var(--nogo);    border: 1px solid rgba(248, 113, 113, 0.30); }
-
-/* Window-card accent glow per tier (matches .acc-* class on the card root) */
-.window-card.acc-light { --accent-glow: rgba(251, 191, 36, 0.14); }
-.window-card.acc-heavy { --accent-glow: rgba(248, 113, 113, 0.22); }
 
 /* =================== BEST badge (tennis-window) ===================
    Sits in the top-right of the window card matching tomorrow.best_window.label.

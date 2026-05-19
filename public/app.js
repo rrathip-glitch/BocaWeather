@@ -731,7 +731,7 @@
         <div class="chip-icon" aria-hidden="true">${weatherIcon(h.weathercode)}</div>
         <div class="chip-temp tabular-nums">${Math.round(h.temperature_f)}°</div>
         <div class="chip-rain tabular-nums">${p}%</div>
-        ${h.disagreement ? '<div class="text-[9px] text-caution font-bold uppercase tracking-wider mt-0.5">⚠ split</div>' : ''}
+        ${h.disagreement ? '<div class="chip-split"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M6 1.2 11 10.4H1L6 1.2Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 5v2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="6" cy="9" r="0.7" fill="currentColor"/></svg><span>Split</span></div>' : ''}
         <div class="chip-bar"><span style="width:${clamp(p, 2, 100)}%; background:${tint}"></span></div>
       `;
       strip.appendChild(chip);
