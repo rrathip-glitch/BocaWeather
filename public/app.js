@@ -559,6 +559,22 @@
         ? `<span class="best-badge" title="Lowest-risk window"><svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="3 8.5 6.5 12 13 5"/></svg>Best</span>`
         : '';
       const pastClass = isPast ? ' is-past' : '';
+      // Per-window confidence tag — shows how much HRRR and AIFS agree on
+      // THIS window's hours specifically. Distinct from the day-level chip
+      // (which covers all 16 tennis hours) and from the per-hour disagreement
+      // (which paints the chart). Three tones map to the same green/amber/
+      // coral palette used everywhere else on the page.
+      const cMap = {
+        HIGH:     { tone: 'green', label: 'Models match' },
+        MODERATE: { tone: 'amber', label: 'Some disagreement' },
+        LOW:      { tone: 'coral', label: 'Models disagree' },
+      };
+      const cfg = cMap[(w.confidence || '').toUpperCase()];
+      const confTag = cfg
+        ? `<span class="window-conf-tag" data-tone="${cfg.tone}" title="${escapeAttr(w.confidence_note || '')}">
+             <span class="window-conf-dot"></span><span>${cfg.label}</span>
+           </span>`
+        : '';
       return `
         <article class="window-card acc-${vc}${pastClass} anim-fade-up" style="--i:${i}; animation-delay:${i * 60}ms;">
           <div class="flex items-start justify-between gap-2 mb-3">
@@ -576,6 +592,7 @@
             <div class="text-[11px] text-ink-50 uppercase tracking-wider">peak rain</div>
           </div>
           <p class="text-xs sm:text-sm text-ink-70 leading-snug">${escapeHtml(w.reason || '')}</p>
+          ${confTag}
         </article>
       `;
     }).join('');

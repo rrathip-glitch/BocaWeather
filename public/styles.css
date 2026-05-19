@@ -513,6 +513,56 @@ body {
 .pill-light   { background: rgba(251, 191, 36, 0.10);  color: var(--caution); border: 1px solid rgba(251, 191, 36, 0.22); letter-spacing: 0.18em; }
 .pill-heavy   { background: rgba(248, 113, 113, 0.15); color: var(--nogo);    border: 1px solid rgba(248, 113, 113, 0.30); }
 
+/* =================== Per-window confidence tag ===================
+   Small inline pill rendered at the bottom of each tennis-window card. Shows
+   how much HRRR and AIFS agree on THIS window's hours specifically (the
+   day-level chip in the hero covers the whole tennis day; this is the
+   window-scope equivalent). Lives in the natural document flow below the
+   reason text so it cannot collide with the BEST badge / verdict pill in the
+   top-right or the title in the top-left. */
+.window-conf-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 2px 8px 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(240, 246, 252, 0.75);
+  white-space: nowrap;
+  max-width: 100%;
+}
+.window-conf-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.window-conf-tag[data-tone="green"] {
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.22);
+  color: rgba(134, 239, 172, 0.95);
+}
+.window-conf-tag[data-tone="amber"] {
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.22);
+  color: rgba(253, 224, 71, 0.95);
+}
+.window-conf-tag[data-tone="coral"] {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.22);
+  color: rgba(252, 165, 165, 0.95);
+}
+.window-card.is-past .window-conf-tag {
+  opacity: 0.55;
+}
+
 /* =================== BEST badge (tennis-window) ===================
    Stacked above the verdict pill in the card's top-right column.
    Subtle palm-green, uppercase, tiny check icon. */
