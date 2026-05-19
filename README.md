@@ -69,7 +69,7 @@ Two endpoints. Full schema in [docs/API.md](./docs/API.md).
 
 All tunables live in `lib/config.js`:
 
-- `LOCATION` — `{ name, lat, lon, timezone }`. Default is the Santa Barbara community in Boca Raton, FL (lat 26.3683, lon -80.1289, `America/New_York`).
+- `LOCATION` — `{ name, lat, lon, timezone }`. Default is the Santa Barbara community in Boca Raton, FL — NE corner of Jog Rd & Glades Rd, zip 33434 (lat 26.3797, lon -80.1539, `America/New_York`).
 - `CACHE_TTL_MS` — In-memory cache lifetime. Default 10 minutes. Do not drop below 5 minutes (Open-Meteo etiquette).
 - `MODELS` — The two Open-Meteo model identifiers we compare. Default `['gfs_hrrr', 'ecmwf_aifs025']`.
 

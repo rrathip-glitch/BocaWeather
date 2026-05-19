@@ -230,8 +230,8 @@ The frontend was developed against this representative payload. It matches the c
 {
   "location": {
     "name": "Santa Barbara, Boca Raton",
-    "lat": 26.3683,
-    "lon": -80.1289,
+    "lat": 26.3797,
+    "lon": -80.1539,
     "timezone": "America/New_York"
   },
   "generated_at": "2026-05-19T13:42:11.000Z",

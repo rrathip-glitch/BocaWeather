@@ -574,7 +574,7 @@
   // ============================================================
   // Live Radar (Leaflet + RainViewer)
   // ============================================================
-  const RADAR_CENTER = [26.3683, -80.1289];
+  const RADAR_CENTER = [26.3797, -80.1539];
   const RADAR_API = 'https://api.rainviewer.com/public/weather-maps.json';
   const RADAR_FRAME_MS = 500;
   const RADAR_LOOP_PAUSE_MS = 1500;

@@ -39,8 +39,8 @@ curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '.tomorrow'
 {
   "location": {
     "name": "Santa Barbara, Boca Raton, FL",
-    "lat": 26.3683,
-    "lon": -80.1289,
+    "lat": 26.3797,
+    "lon": -80.1539,
     "timezone": "America/New_York"
   },
   "generatedAt": "2026-05-19T13:42:11.000Z",

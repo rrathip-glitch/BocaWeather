@@ -4,7 +4,7 @@ This document explains why BocaWeather is built the way it is. If you are a new 
 
 ## 1. Problem statement
 
-The users are members of the Santa Barbara community in Boca Raton, Florida (lat 26.3683, lon -80.1289). They want to know one thing: **should I plan to play tennis tomorrow, and at what time of day?**
+The users are members of the Santa Barbara community in Boca Raton, Florida — a gated community on the NE corner of Jog Road and Glades Road, zip 33434 (lat 26.3797, lon -80.1539). They want to know one thing: **should I plan to play tennis tomorrow, and at what time of day?**
 
 Boca Raton's weather is dominated for half the year by afternoon convective storms. These storms have three properties that break naive weather apps:
 
