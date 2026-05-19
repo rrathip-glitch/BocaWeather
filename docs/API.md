@@ -9,7 +9,7 @@ For the reasoning behind the response shape, see [DESIGN.md](./DESIGN.md).
 
 ## `GET /api/forecast`
 
-Returns the full tomorrow forecast for the configured location, with per-window guidance and full hourly arrays from both models.
+Returns sibling `today` and `tomorrow` forecasts for the configured location, with per-window guidance under each day and full hourly arrays from both models. See [Today's partial day semantics](#todays-partial-day-semantics) for how today is sliced relative to the current local hour.
 
 ### Query parameters
 
@@ -20,7 +20,7 @@ Returns the full tomorrow forecast for the configured location, with per-window 
 Example:
 
 ```bash
-curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '.tomorrow'
+curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '{today: .today, tomorrow: .tomorrow}'
 ```
 
 ### Caching
@@ -31,7 +31,7 @@ curl -s "http://localhost:3000/api/forecast?refresh=1" | jq '.tomorrow'
 
 ### Tennis-hours-scoped daily stats
 
-`tomorrow.rain_probability_max` and `tomorrow.rain_probability_mean` are computed over the tennis hours only (06:00–21:00 local), not all 24 hours of tomorrow. See [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) for the rationale. `tomorrow.precipitation_sum_in` continues to reflect the full-day Open-Meteo daily total.
+`rain_probability_max` and `rain_probability_mean` on both `today` and `tomorrow` are computed over tennis hours only (06:00–21:00 local), not all 24 hours of the day. For tomorrow this is always the full 16-hour set; for today it is just the hours still ahead — see [Today's partial day semantics](#todays-partial-day-semantics). See [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) for the rationale. `precipitation_sum_in` continues to reflect the full-day Open-Meteo daily total on both days.
 
 ### Verdict tier semantics
 

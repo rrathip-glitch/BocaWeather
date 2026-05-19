@@ -21,7 +21,7 @@ In this order:
 3. `server.js` — Express bootstrap. Small file. Mounts the routes, serves `/public`, listens on `process.env.PORT || 3000`.
 4. `lib/config.js` — Single source of truth for location, timezone, cache TTL, model list.
 5. `lib/openMeteo.js` — Open-Meteo client. Builds the URL with both models, normalizes the response.
-6. `lib/forecast.js` — Threshold logic. Verdict, windows, disagreement flag. **The `VERDICT` enum at the top of this file is the source of truth for tier names** (`HEAVY_CAUTION`, `LIGHT_CAUTION`, `GO`); every other reference in the codebase and docs must match it.
+6. `lib/forecast.js` — Threshold logic. Verdict, windows, disagreement flag. **The `VERDICT` enum at the top of this file is the source of truth for tier names** (`HEAVY_CAUTION`, `LIGHT_CAUTION`, `GO`); every other reference in the codebase and docs must match it. The `buildDay()` helper inside this file is the **source of truth for per-day computation** — it takes the hourly arrays and a start/end hour range and returns the full day object (verdict, stats, tennis windows, `is_past` flags, `is_concluded` semantics, `tennis_hours_remaining`). Both `today` and `tomorrow` flow through `buildDay()` with different inputs; understand it before changing any day-shaped field.
 7. `lib/cache.js` — Trivial TTL cache.
 8. `public/index.html` and `public/app.js` — Frontend. Tailwind + Chart.js, no framework, no build step.
 
@@ -39,8 +39,10 @@ These are load-bearing decisions. If you change any of them, do so deliberately 
 6. **`/api/health` does not call Open-Meteo.** It only reports process liveness. Routing it through the upstream would let an Open-Meteo outage trigger Railway restarts that flush our cache.
 7. **Verdict tier names are `HEAVY_CAUTION` / `LIGHT_CAUTION` / `GO`. Do NOT reintroduce `NO_GO` or "Skip it" wording — the user specifically rejected absolutist phrasing. Heavy caution is strong but not a hard "don't play" call.** Reason strings follow fixed prefixes: "Strong caution: …" for `HEAVY_CAUTION`, "Heads up: …" for `LIGHT_CAUTION`, "Looks good: …" for `GO`.
 8. **`LIGHT_CAUTION` must present visibly softer than `HEAVY_CAUTION` and `GO`. If you change the hero typography, preserve that hierarchy.** Both end tiers shout (large weight, full glow); the middle tier murmurs (smaller font, lighter weight, lower-opacity glow). Equalizing the visual weight would push `LIGHT_CAUTION` back toward the absolutist reading the rename in invariant 7 was meant to walk away from.
-9. **The tennis-accuracy fields on `tomorrow` are part of the API contract. Removing them silently breaks the frontend.** The fields are `wind_max_mph`, `wind_mean_mph`, `first_rain_time`, `first_rain_hour_local`, `best_window`, `confidence`, and `confidence_note`. If you need to deprecate one, coordinate the change across `lib/forecast.js`, `public/app.js`, `docs/API.md`, `docs/BACKEND.md`, and `docs/FRONTEND.md` in the same commit.
+9. **The tennis-accuracy fields on each day object (`today` and `tomorrow`) are part of the API contract. Removing them silently breaks the frontend.** The fields are `wind_max_mph`, `wind_mean_mph`, `first_rain_time`, `first_rain_hour_local`, `best_window`, `confidence`, and `confidence_note`. If you need to deprecate one, coordinate the change across `lib/forecast.js`, `public/app.js`, `docs/API.md`, `docs/BACKEND.md`, and `docs/FRONTEND.md` in the same commit. On a concluded `today` (after 9pm local) these fields are `null` by design — see invariant 12.
 10. **`best_window` may be `null` when all four windows are `HEAVY_CAUTION`. The frontend handles `null` — don't fake a window to avoid `null`.** That `null` is meaningful product information ("there is no clean window tomorrow"); inventing a fake "best" recommends play on a day the model says is bad.
+11. **The API returns `today` and `tomorrow` as siblings with identical field shape (today adds `tennis_hours_remaining`; tomorrow may omit it). Don't reintroduce a top-level `tennis_windows` array — windows live inside each day.** Frontend code reads `data.today.tennis_windows` and `data.tomorrow.tennis_windows`; a top-level `tennis_windows` would silently drift away from the day it was originally computed for and break the toggle.
+12. **Today's `is_concluded` view (after 9pm local) is a deliberate UX state. Don't fake values to make the today view look like tomorrow's — null means null, and the frontend shows a "COMPLETE" state with a CTA to switch to tomorrow.** The `verdict` and day-level stats on a concluded `today` are intentionally `null`; substituting tomorrow's values, a "GO" placeholder, or yesterday's leftover stats would lie to the user about what the model said.
 
 ## 5. Common tasks
 
@@ -62,6 +64,15 @@ If you want to support multiple locations simultaneously, that is a larger chang
 1. Edit `MODELS` in `lib/config.js` (or `lib/openMeteo.js` if that is where the list is). Verify the model ID against the [Open-Meteo model docs](https://open-meteo.com/en/docs).
 2. Confirm the variable name suffixes in the Open-Meteo response: when you pass `models=A,B`, hourly variables come back as `precipitation_probability_A` and `precipitation_probability_B`. The normalization in `lib/openMeteo.js` must match.
 3. If you are going from two models to three, decide what "disagreement" means. Pairwise max? Standard deviation? Do not just compute a mean and call it a day — re-read [DESIGN.md section 2](./DESIGN.md#2-solution-approach).
+
+### Change the tennis day boundaries
+
+The tennis day is currently 06:00–21:00 local. To change it:
+
+1. Edit the constants in `lib/forecast.js` (`TENNIS_DAY_START_HOUR`, `TENNIS_DAY_END_HOUR`).
+2. **Same commit:** update [DESIGN.md section 3](./DESIGN.md#3-verdict-thresholds) (which references the 06:00–21:00 window for daily stats) and [DESIGN.md section 4](./DESIGN.md#4-tennis-windows) (which references the same window for tennis windows). Make sure the per-window table in section 4 still fits inside the new range.
+3. Verify the today `is_concluded` threshold still makes sense. Today flips to `is_concluded: true` at the new end hour; if you push the end past 23:00 or pull it before noon, sanity-check that the "tennis day complete" copy and the CTA-to-tomorrow flow still read correctly.
+4. Re-check `TENNIS_WINDOWS` (per-window boundaries) so they stay inside the new day. The four windows currently span the full 06:00–21:00 range with no gaps; if you narrow the day, narrow or drop windows to match.
 
 ### Change verdict thresholds
 
@@ -96,7 +107,9 @@ npm start
 
 Then open <http://localhost:3000>. The server reads `process.env.PORT || 3000`.
 
-You should see the verdict card, four window tiles, and an hourly probability chart for tomorrow. If you see `models.hrrr.ok: false` or `models.aifs.ok: false` in the network response, Open-Meteo (or your network) blocked one of the model fetches.
+You should see the verdict card, four window tiles, and an hourly probability chart for the selected day. The Today/Tomorrow toggle above the hero swaps the view; it defaults to tomorrow. If you see `models.hrrr.ok: false` or `models.aifs.ok: false` in the network response, Open-Meteo (or your network) blocked one of the model fetches.
+
+**Note on time and timezones.** Today's computation depends on the system clock and on resolving "now" to `America/New_York` local time. Running the dev server in a non-NY timezone is fine: Open-Meteo returns timestamps tagged for the configured timezone and the app uses `Intl.DateTimeFormat` (with `timeZone: 'America/New_York'`) to derive the local hour, so the result is the same on a laptop in Tokyo as on one in Boca Raton. The one place this matters is testing: if you mock `Date.now()` in a unit test, also pass that mocked value through to `buildForecast({ now })` so the per-day slicing in `lib/forecast.js` uses the mocked clock instead of the real wall time.
 
 ## 8. How to deploy
 

@@ -2,6 +2,55 @@
 
 Operational reference for the Node/Express backend. For the user-facing API contract see [API.md](./API.md). For the rationale behind the verdict thresholds see [DESIGN.md](./DESIGN.md).
 
+## Today vs Tomorrow
+
+The API returns two sibling day objects, `today` and `tomorrow`. Both are built by the same `buildDay(...)` helper in `lib/forecast.js`, then mounted under those keys. The difference is what hours feed into the verdict math and how `tennis_windows` are flagged.
+
+**`now`-relative computation.** `buildForecast(raw, { now })` accepts an injected `now: Date` (default `new Date()`). Server code never passes it; tests do, so the partial-day filter can be exercised deterministically. `now` is converted to a wall-clock hour 0-23 in `America/New_York` via `Intl.DateTimeFormat`, then used to slice today's tennis hours.
+
+**Tomorrow** is always the full set of `hourly[]` entries with `is_tomorrow === true` and local hour in `[6, 21]`. `tennis_windows[*].is_past` is always `false`. There is no `tennis_hours_remaining` field on tomorrow. `is_concluded` is `false`.
+
+**Today** is filtered relative to the current local hour:
+
+- If `currentHour < 6`: include all today entries with hour in `[6, 21]` (the full 16-hour tennis day is still ahead).
+- If `6 <= currentHour < 21`: include today entries with hour in `[currentHour, 21]`. The current hour is included (we floor to the start of the hour, not the next hour).
+- If `currentHour >= 21`: today is **concluded** — see below.
+
+`today.tennis_hours_remaining` is the integer count of tennis hours still ahead. The frontend can render "Only 3 tennis hours left today".
+
+**Per-day `tennis_windows`.** Each day object owns its own four-element `tennis_windows` array (no top-level `tennis_windows` anymore). Each window is computed from that day's hourly data — for today this includes already-past hours; the model values for those hours are simply known rather than predicted. Each window in today gets `is_past: true` when its `endHour <= currentHour`; tomorrow's windows are always `is_past: false`.
+
+`best_window` selection restricts to non-past windows on today (so a clear morning that has already happened is not advertised as the "best slot"). The algorithm is otherwise unchanged: lowest-rain `GO`, fall back to lowest-rain `LIGHT_CAUTION`, `null` if nothing playable remains.
+
+### `is_concluded` semantics
+
+When `currentHour >= 21`, today's tennis day is over — the last window (Evening, 18-21) has ended. The today object is built by `buildConcludedDay(...)` and looks like:
+
+```json
+{
+  "date": "2026-05-19",
+  "label": "today",
+  "is_concluded": true,
+  "tennis_hours_remaining": 0,
+  "verdict": null,
+  "verdict_reason": "Tennis day complete — check Tomorrow for the next forecast.",
+  "rain_probability_max": null,
+  "rain_probability_mean": null,
+  "wind_max_mph": null,
+  "wind_mean_mph": null,
+  "first_rain_time": null,
+  "first_rain_hour_local": null,
+  "best_window": null,
+  "confidence": null,
+  "confidence_note": "Tennis day complete.",
+  "tennis_windows": [ /* all 4 with is_past: true */ ]
+}
+```
+
+Daily metadata that does not depend on remaining hours — `precipitation_sum_in`, `temperature_high_f`, `temperature_low_f`, `sunrise`, `sunset` — is still populated from Open-Meteo's daily array. The frontend can show "yesterday's" totals for the rest of the calendar day if it wants.
+
+Tomorrow always carries `is_concluded: false` for shape symmetry but never has the conclusion code path.
+
 ## Open-Meteo model IDs
 
 The backend queries two model identifiers as the `models=` parameter on `https://api.open-meteo.com/v1/forecast`:
@@ -45,7 +94,7 @@ Computed in `lib/forecast.js`. The **daily** verdict and the per-**window** verd
 
 ### Daily verdict (tennis-hours-scoped)
 
-The daily verdict is computed over the 16 tennis hours of tomorrow: local hours `06:00` through `21:00` inclusive (`TENNIS_DAY_START_HOUR..TENNIS_DAY_END_HOUR` in `lib/forecast.js`). Pre-dawn rain that has cleared by sunrise does not drag a clear afternoon down — that was the explicit motivation for moving from a 24h-wide check to this window.
+The daily verdict is computed over the tennis hours of the day: local hours `06:00` through `21:00` inclusive (`TENNIS_DAY_START_HOUR..TENNIS_DAY_END_HOUR` in `lib/forecast.js`). Pre-dawn rain that has cleared by sunrise does not drag a clear afternoon down — that was the explicit motivation for moving from a 24h-wide check to this window. Tomorrow always uses the full 16-hour set; today uses only the hours still ahead (see [Today vs Tomorrow](#today-vs-tomorrow)).
 
 Tennis-hours stats:
 
@@ -63,7 +112,7 @@ Tennis-hours stats:
 
 Priority order if multiple thresholds apply: `heavyHours` > `tennisPrecip` for the HEAVY tier; `peakTennisProb` > `tennisPrecip` > `disagreementAtRiskyHour` for the LIGHT tier. The `verdict_reason` string reflects whichever trigger fired.
 
-`tomorrow.rain_probability_max` and `tomorrow.rain_probability_mean` in the API response are `peakTennisProb` and `meanTennisProb` respectively — not the full-day stats. `tomorrow.precipitation_sum_in` is still the Open-Meteo daily total.
+`rain_probability_max` and `rain_probability_mean` on both `today` and `tomorrow` are `peakTennisProb` and `meanTennisProb` over that day's tennis hours — not the full-day stats. `precipitation_sum_in` is still the Open-Meteo daily total.
 
 The named constants live at the top of `lib/forecast.js` (`TENNIS_DAY_START_HOUR`, `TENNIS_DAY_END_HOUR`, `NOGO_HEAVY_HOURS`, `NOGO_HEAVY_PROB`, `NOGO_PRECIP_IN`, `CAUTION_PEAK_PROB`, `CAUTION_PRECIP_IN`, `CAUTION_DISAGREEMENT_PROB`).
 
@@ -100,7 +149,7 @@ For each window the backend computes the max consensus probability across its ho
 
 ## Tennis accuracy enhancements
 
-The `tomorrow` object includes five computed fields aimed at giving a tennis-specific read on conditions. All five are scoped to tennis hours (06:00–21:00 local on tomorrow, the same window the daily verdict uses). The named constants live at the top of `lib/forecast.js`.
+Both the `today` and `tomorrow` day objects include five computed fields aimed at giving a tennis-specific read on conditions. All five are scoped to that day's tennis hours — full 06:00–21:00 for tomorrow, the remaining hours for today. On a concluded today they are all `null`. The named constants live at the top of `lib/forecast.js`.
 
 ### Wind: `wind_max_mph`, `wind_mean_mph`
 
@@ -123,11 +172,13 @@ If no tennis hour crosses 50%, both fields are `null`. Threshold rationale: 50% 
 
 ### `best_window`
 
-Walk all four `tennis_windows` and choose:
+Walk the day's `tennis_windows` and choose:
 
 1. The `GO` window with the lowest `max_rain_prob`. Ties are broken by array order (Morning first).
 2. If no window is `GO`, the `LIGHT_CAUTION` window with the lowest `max_rain_prob`.
-3. If all four are `HEAVY_CAUTION`, `best_window` is `null` — there is no recommended slot.
+3. If all remaining windows are `HEAVY_CAUTION`, `best_window` is `null` — there is no recommended slot.
+
+For **today**, the candidate pool is restricted to windows where `is_past === false`. If today's morning was sunny but it is now 2pm, the picker will not suggest the morning slot. If every remaining window is `HEAVY_CAUTION` or every window has already passed, `best_window` is `null`.
 
 Shape: `{ label, max_rain_prob, verdict }` — a minimal pointer into `tennis_windows`. The frontend can use this to highlight the "play now" slot without re-implementing the selection logic.
 
@@ -179,14 +230,23 @@ curl -s http://localhost:3000/api/health
 # Full forecast
 curl -s http://localhost:3000/api/forecast | jq .
 
-# Just tomorrow's verdict and the tennis-accuracy fields
+# Just today's verdict + remaining-hours subtext
+curl -s http://localhost:3000/api/forecast \
+  | jq '.today | {date, label, is_concluded, tennis_hours_remaining, verdict, verdict_reason, best_window}'
+
+# Tomorrow's verdict and the tennis-accuracy fields
 curl -s http://localhost:3000/api/forecast \
   | jq '.tomorrow | {date, verdict, verdict_reason, model_agreement, confidence, confidence_note}'
 
-# Tennis windows summary (new tier names)
-curl -s http://localhost:3000/api/forecast | jq '.tennis_windows[] | {label, verdict, max_rain_prob, reason}'
+# Today's tennis windows (note the per-window is_past flag)
+curl -s http://localhost:3000/api/forecast \
+  | jq '.today.tennis_windows[] | {label, verdict, max_rain_prob, is_past, reason}'
 
-# Wind + first rain + best window snapshot
+# Tomorrow's tennis windows
+curl -s http://localhost:3000/api/forecast \
+  | jq '.tomorrow.tennis_windows[] | {label, verdict, max_rain_prob, reason}'
+
+# Wind + first rain + best window snapshot for tomorrow
 curl -s http://localhost:3000/api/forecast \
   | jq '.tomorrow | {wind_max_mph, wind_mean_mph, first_rain_hour_local, first_rain_time, best_window}'
 

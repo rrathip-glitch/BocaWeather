@@ -4,7 +4,11 @@ Tennis-focused, dual-model rain forecasts for the Santa Barbara community in Boc
 
 ## What it does
 
-BocaWeather answers one question: "Can I play tennis tomorrow, and if so, when?" It pulls hourly precipitation forecasts from two independent weather models (NOAA HRRR and ECMWF AIFS) for the Santa Barbara community in Boca Raton and converts them into a simple GO / CAUTION / HEAVY CAUTION verdict plus per-window guidance for morning, midday, afternoon, and evening play. Alongside the verdict it shows wind, first-rain time, best window of the day, and a forecast-confidence rating derived from model agreement. By comparing the two models against each other, the app surfaces honest forecast uncertainty instead of pretending a single model is gospel.
+BocaWeather answers two questions: "Can I play tennis tomorrow, and if so, when?" and "Can I get a set in this afternoon?" It pulls hourly precipitation forecasts from two independent weather models (NOAA HRRR and ECMWF AIFS) for the Santa Barbara community in Boca Raton and converts them into a simple GO / CAUTION / HEAVY CAUTION verdict plus per-window guidance for morning, midday, afternoon, and evening play.
+
+Switch between today's remaining tennis hours and tomorrow's full forecast with a single tap. Both days surface verdict, wind, first-rain time, best window, and confidence. Tomorrow is the default view because next-day planning is the primary use case; today is one tap away for mid-day decisions.
+
+By comparing the two models against each other, the app surfaces honest forecast uncertainty instead of pretending a single model is gospel.
 
 ## Why dual-model?
 
@@ -62,7 +66,7 @@ BocaWeather/
 
 Two endpoints. Full schema in [docs/API.md](./docs/API.md).
 
-- `GET /api/forecast` — Returns location, tomorrow verdict (GO / LIGHT_CAUTION / HEAVY_CAUTION) plus tennis-accuracy fields (wind, first rain time, best window, confidence), per-window guidance, and full hourly arrays with both models' probabilities and disagreement flags.
+- `GET /api/forecast` — Returns location plus two sibling day objects, `today` and `tomorrow`, replacing the previous single-`tomorrow` response. Each day object carries a verdict (GO / LIGHT_CAUTION / HEAVY_CAUTION), tennis-accuracy fields (wind, first rain time, best window, confidence), per-window guidance, and the hourly arrays with both models' probabilities and disagreement flags. `today` is scoped to the remaining tennis hours from now through 21:00 local and adds `tennis_hours_remaining`; after 21:00 it returns `is_concluded: true` with null stats. `tomorrow` always covers the full 06:00–21:00 tennis day.
 - `GET /api/health` — Returns `{ ok: true, uptime: <seconds> }`.
 
 ## Configuration

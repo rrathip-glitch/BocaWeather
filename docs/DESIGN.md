@@ -6,6 +6,8 @@ This document explains why BocaWeather is built the way it is. If you are a new 
 
 The users are members of the Santa Barbara community in Boca Raton, Florida — a gated community on the NE corner of Jog Road and Glades Road, zip 33434 (lat 26.3797, lon -80.1539). They want to know one thing: **should I plan to play tennis tomorrow, and at what time of day?**
 
+In practice the same users also want to make mid-day calls about today — "can I get a set in this afternoon before the front comes through?" — not just plan tomorrow. The app supports both: a Today/Tomorrow toggle switches the entire forecast view between today's remaining tennis hours and tomorrow's full day, with planning for tomorrow as the default because that is the primary use case.
+
 Boca Raton's weather is dominated for half the year by afternoon convective storms. These storms have three properties that break naive weather apps:
 
 1. **They are small.** A typical Florida summer cell is 5-15 km wide. That is below the effective resolution of every global weather model.
@@ -94,11 +96,46 @@ The day is split into four windows that match the community's actual play patter
 
 Each window gets its own verdict (GO / LIGHT_CAUTION / HEAVY_CAUTION) computed by applying the same thresholds to **that window's hours only**. This is what lets a user see "morning is fine, afternoon is a wash, evening might clear up" — which is the practical Florida summer pattern.
 
+Windows are now computed **per day**. Both `today.tennis_windows` and `tomorrow.tennis_windows` are returned by the API with the same shape. Tomorrow's windows are all future, so every one has live stats. Today's windows include an `is_past` flag on any window whose end hour has already elapsed in local time; the original forecast values for those past windows are preserved so the user can compare what the model predicted against what actually happened. See section 5 ("Today vs Tomorrow") for the broader day-scoping rules.
+
 The window boundaries live in `lib/forecast.js` as `TENNIS_WINDOWS`. The frontend layout assumes four windows; changing the count requires a frontend change too.
 
-## 5. Tennis accuracy enhancements
+## 5. Today vs Tomorrow
 
-The day-level verdict and per-window grid answer "can I play and roughly when," but several practical tennis questions need more specific data. This pass added six fields to the `tomorrow` API object that exist purely to make the day-before tennis decision sharper. None of them change the verdict logic in section 3 — they sit alongside it as additional context surfaced in the UI.
+Originally the API returned a single `tomorrow` object. It now returns `today` and `tomorrow` as sibling objects with the same field shape, and the frontend exposes a Today/Tomorrow toggle above the hero that swaps which day drives every day-scoped render (hero, tennis windows, hourly strip highlight). The now-strip — real-time conditions — is independent of the toggle and always shows live data.
+
+### What each day's stats represent
+
+- **Tomorrow** always covers the full tennis day, 06:00–21:00 local. All 16 tennis hours are in the future, so verdict, wind, first rain, best window, and confidence are all live values.
+- **Today** is scoped to the remaining tennis hours from "now" forward through 21:00 local. Specifically:
+  - Before 06:00 local, today covers the full 06:00–21:00 window (same shape as tomorrow).
+  - Between 06:00 and 20:59 local, today covers `now → 21:00` — a shrinking window over the course of the day.
+  - At 21:00 local or later, today is marked `is_concluded: true` with null verdict and null stats and a "Tennis day complete" reason.
+
+Today carries one extra field that tomorrow does not: `tennis_hours_remaining`, an integer count of tennis hours still in the future. Tomorrow may omit it (or report it as the full 16) because the concept is only meaningful when "now" is inside the tennis day.
+
+### Past hours and the past-windows forecast
+
+For today specifically, the API still returns the original forecast values for tennis windows whose end hour has already elapsed, with `is_past: true` on those window entries. We do **not** recompute or hide them. Two reasons:
+
+1. The user can verify model skill against what actually happened — "the model said 70% at 2pm, and it did rain at 2pm" is the most direct trust signal the app gives.
+2. Hiding past hours would make the today view shrink visibly through the day, which reads as data loss rather than as the tennis day progressing.
+
+What we do **not** do is roll past-hour stats into today's day-level stats (wind, first rain, best window, confidence). Those are computed only over the **remaining** tennis hours, because the day-level numbers exist to inform a forward-looking decision.
+
+### `is_concluded` semantics
+
+After 21:00 local, today's `is_concluded` flag is `true`, `verdict` and the day-level stats are `null`, and the reason string is "Tennis day complete." The frontend renders a "COMPLETE" state for today and a CTA to switch to tomorrow. This is a deliberate UX state — null is null, and the app does not fabricate values to keep the today view looking populated. The toggle still allows selecting today (the user may want to look at the past windows for verification), but the primary action surfaced is the jump to tomorrow.
+
+### Default selection and persistence
+
+The page loads with **tomorrow** selected by default. Next-day planning is the primary use case, and starting the user on tomorrow matches how the app was originally framed. Switching to today is one tap away.
+
+The toggle state is per-session frontend state. It survives `/api/forecast` refreshes within a session but does not persist across page reloads — a fresh page load always starts on tomorrow.
+
+## 6. Tennis accuracy enhancements
+
+The day-level verdict and per-window grid answer "can I play and roughly when," but several practical tennis questions need more specific data. This pass added six fields to the day object (now present on both `today` and `tomorrow`) that exist purely to make the tennis decision sharper. None of them change the verdict logic in section 3 — they sit alongside it as additional context surfaced in the UI. On `today`, these fields are computed over the **remaining** tennis hours only; on `tomorrow` they cover the full 06:00–21:00 day.
 
 ### Wind: `wind_max_mph` and `wind_mean_mph`
 
@@ -140,13 +177,15 @@ This is a deliberate product choice: the user should not have to scan four windo
 
 The existing `disagree` flag on individual hours is a binary alarm ("these two hours specifically diverge"). `confidence` is the day-shaped summary: how much weight to put on the verdict at all. They complement each other and the UI shows both. A `GO` verdict with `confidence: "LOW"` is a meaningfully different recommendation than a `GO` verdict with `confidence: "HIGH"`, and the user should be able to see that at a glance.
 
-## 6. Visual hierarchy of verdict tiers
+The dual-model comparison applies to **both** today (computed over remaining tennis hours) and tomorrow (full tennis day). Today's confidence may differ from tomorrow's because the two windows cover different hours; that is expected and not a bug.
+
+## 7. Visual hierarchy of verdict tiers
 
 The three verdict tiers are not presented with equal weight in the UI, and that is deliberate. `HEAVY_CAUTION` and `GO` both shout — large weight, bright color, full glow — because both are clear recommendations (strongly avoid, or strongly go). `LIGHT_CAUTION` murmurs: smaller font, lighter weight, lower-opacity glow. The middle tier should read as "watch closely," not as a hard call in either direction.
 
 If you redesign the hero typography, preserve that hierarchy. A `LIGHT_CAUTION` day rendered with the same visual weight as `HEAVY_CAUTION` will read to users as a hard "do not play" call, which is exactly the absolutist tone the rename in section 3 was meant to walk back. The visual softness is part of the same product judgement as the renamed labels.
 
-## 7. Why no nowcasting in this app
+## 8. Why no nowcasting in this app
 
 We deliberately do not try to answer "is it about to rain in the next hour" — and we do not pretend to. Model forecasts run hourly, and even HRRR's 1-hour outputs are not the right tool for the 15-minutes-before-match decision.
 
@@ -157,7 +196,7 @@ For the very-short-range decision ("we are walking to the court now, is the cell
 
 This is an explicit non-goal so that a future agent does not bolt on a half-working nowcaster and dilute the day-before product. Radar and forecast models answer different questions on different time horizons. Keep them separate.
 
-## 8. Stack rationale
+## 9. Stack rationale
 
 - **Node.js 20 + Express 4 (ESM, single process)** — One process is enough for the load and the cache lives in process memory. No external dependencies (no Redis, no DB) means Railway deploys are trivial and there is nothing to misconfigure. Node 20 is current LTS.
 - **No frontend framework** — Plain HTML, Tailwind via CDN, Chart.js via CDN, one `app.js` file. There is no build step. The page loads instantly on mobile and there is nothing to break in CI. The app's value is in the data, not the UI plumbing.
@@ -165,7 +204,7 @@ This is an explicit non-goal so that a future agent does not bolt on a half-work
 - **10-minute in-memory cache** — Open-Meteo updates HRRR hourly and AIFS less often. A 10-minute cache cuts our outbound requests to roughly six per hour even under load, well inside the free-tier budget. Cache is intentionally process-local: a Railway restart flushes it, which is the simplest possible cache invalidation story.
 - **No database** — There is no user state, no history (yet), and no need to persist anything across restarts. Adding a DB would be the largest possible architectural change for zero current product value.
 
-## 9. Project structure
+## 10. Project structure
 
 ```
 BocaWeather/
@@ -191,13 +230,13 @@ BocaWeather/
     AGENT_HANDOFF.md       # Onboarding doc for new agents
 ```
 
-## 10. Non-goals
+## 11. Non-goals
 
 The following are explicitly out of scope for this version. Anyone adding them needs a real reason and should update this section.
 
 - **General-purpose weather app.** No temperature dashboards, no wind roses, no 10-day outlook. Rain probability for tennis, that is it.
 - **Multiple locations.** One location, hardcoded in `lib/config.js`. Adding more requires a frontend selector and a routing decision; not worth it until requested.
 - **Push notifications / alerts.** No accounts, no subscriptions, no email. Stateless app.
-- **Nowcasting.** See section 7.
+- **Nowcasting.** See section 8.
 - **Historical accuracy tracking.** Worth doing eventually (it would let us validate the thresholds in section 3) but requires a database and is not in scope now.
 - **User accounts.** None.

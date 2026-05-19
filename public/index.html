@@ -108,6 +108,26 @@
     <!-- Refresh toast (out of header flow so it doesn't shift layout) -->
     <div id="refresh-toast" class="refresh-toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
+    <!-- ====================== DAY TOGGLE ====================== -->
+    <!-- Segmented control: Today | Tomorrow. Sliding indicator paints behind
+         the active button. Persists across data refreshes; drives every
+         day-aware render via appState.selectedDay. -->
+    <div class="day-toggle-wrap mb-8 sm:mb-10">
+      <div id="day-toggle" class="day-toggle" role="tablist" aria-label="Forecast day">
+        <span id="day-toggle-indicator" class="day-toggle-indicator" data-day="tomorrow" aria-hidden="true"></span>
+        <button id="day-toggle-today" type="button" role="tab" aria-selected="false" aria-controls="hero" data-day="today"
+          class="day-toggle-btn" title="Today's forecast">
+          <span class="day-toggle-label">Today</span>
+          <span id="day-toggle-today-sub" class="day-toggle-sub">—</span>
+        </button>
+        <button id="day-toggle-tomorrow" type="button" role="tab" aria-selected="true" aria-controls="hero" data-day="tomorrow"
+          class="day-toggle-btn is-active" title="Tomorrow's forecast">
+          <span class="day-toggle-label">Tomorrow</span>
+          <span id="day-toggle-tomorrow-sub" class="day-toggle-sub">—</span>
+        </button>
+      </div>
+    </div>
+
     <!-- ====================== HERO VERDICT ====================== -->
     <section id="hero" class="relative mb-10 sm:mb-14">
       <!-- Glow plate -->
@@ -159,7 +179,7 @@
     <section class="mb-10 sm:mb-14" aria-labelledby="windows-heading">
       <div class="flex items-end justify-between mb-4 sm:mb-5">
         <h2 id="windows-heading" class="text-lg sm:text-xl font-semibold">Tennis windows</h2>
-        <div class="text-xs text-ink-50">Tomorrow · Eastern Time</div>
+        <div id="windows-subheading" class="text-xs text-ink-50">Tomorrow · Eastern Time</div>
       </div>
       <div id="windows-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <!-- 4 skeleton placeholders -->

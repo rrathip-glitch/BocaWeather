@@ -18,6 +18,21 @@
   let refreshTimer = null;
   let lastPayload = null;
 
+  // App-level state for the Today/Tomorrow toggle.
+  // `selectedDay` defaults to 'tomorrow' (the original product focus).
+  // `lastData` caches the most recent /api/forecast payload so a toggle
+  // click can re-render without a network round-trip.
+  const appState = {
+    selectedDay: 'tomorrow', // 'today' | 'tomorrow'
+    lastData: null,
+  };
+
+  // Returns the currently-selected day object from a forecast payload, or
+  // undefined when the payload is missing / the day key isn't present.
+  function currentDay(data) {
+    return data?.[appState.selectedDay];
+  }
+
   // ============================================================
   // Utilities
   // ============================================================
@@ -36,6 +51,24 @@
   // Parse a "YYYY-MM-DD" string as noon LOCAL — keeps it on the intended calendar day
   // regardless of viewer timezone (avoids "2026-05-20" → previous-day drift in -HHMM zones).
   const parseLocalDate = (ymd) => new Date(`${ymd}T12:00:00`);
+
+  // Abbreviated date used in the day-toggle subtitles — e.g. "Mon, May 19".
+  const fmtDateAbbr = (d) => new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', timeZone: TZ
+  }).format(d);
+
+  // Returns the "YYYY-MM-DD" calendar date in TZ for a Date object — used to
+  // tag hourly chips with the day they belong to, so we can highlight (and
+  // scroll-into-view) the currently-selected day's chips.
+  const ymdInTZ = (d) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric', month: '2-digit', day: '2-digit', timeZone: TZ
+    }).formatToParts(d);
+    const y = parts.find(p => p.type === 'year').value;
+    const m = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    return `${y}-${m}-${day}`;
+  };
 
   const fmtTimeShort = (d) => new Intl.DateTimeFormat('en-US', {
     hour: 'numeric', timeZone: TZ
@@ -131,6 +164,8 @@
       const data = await res.json();
       hideError();
       lastPayload = data;
+      // Cache for toggle-driven re-renders that should not refetch.
+      appState.lastData = data;
       renderAll(data);
       return data;
     } catch (err) {
@@ -162,6 +197,7 @@
   // Renderers
   // ============================================================
   function renderAll(data) {
+    renderDayToggle(data);
     renderHero(data);
     renderNowStrip(data);
     renderTennisWindows(data);
@@ -171,22 +207,82 @@
     renderFooter(data);
   }
 
+  // ---- Day toggle ----
+  // Updates the today/tomorrow subtitles (abbreviated date or "Day complete"),
+  // syncs the sliding indicator position, and reflects ARIA selection. Called
+  // both after a fetch and after every toggle click.
+  function renderDayToggle(data) {
+    const today = data?.today;
+    const tomorrow = data?.tomorrow;
+
+    const todayBtn  = $('#day-toggle-today');
+    const tomBtn    = $('#day-toggle-tomorrow');
+    const indicator = $('#day-toggle-indicator');
+    const todaySub  = $('#day-toggle-today-sub');
+    const tomSub    = $('#day-toggle-tomorrow-sub');
+
+    if (!todayBtn || !tomBtn || !indicator) return;
+
+    // Subtitles
+    if (todaySub) {
+      if (today && today.is_concluded) {
+        todaySub.textContent = 'Day complete';
+        todayBtn.classList.add('is-done');
+        todayBtn.title = 'Tennis day is over';
+      } else if (today && today.date) {
+        todaySub.textContent = fmtDateAbbr(parseLocalDate(today.date));
+        todayBtn.classList.remove('is-done');
+        todayBtn.title = "Today's forecast";
+      } else {
+        todaySub.textContent = '—';
+      }
+    }
+    if (tomSub) {
+      tomSub.textContent = tomorrow && tomorrow.date
+        ? fmtDateAbbr(parseLocalDate(tomorrow.date))
+        : '—';
+    }
+
+    // Active state + ARIA
+    const selected = appState.selectedDay;
+    [todayBtn, tomBtn].forEach(btn => {
+      const isActive = btn.dataset.day === selected;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      btn.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
+    indicator.dataset.day = selected;
+  }
+
   // ---- Hero ----
+  // Renders the hero for the currently-selected day. Falls back to the
+  // tomorrow object if the selected day is missing (older backend payloads),
+  // so the view never goes blank.
   function renderHero(data) {
-    const t = data.tomorrow;
-    const vClass = verdictClass(t.verdict);
-    const vLabel = verdictLabel(t.verdict);
+    const t = currentDay(data) || data.tomorrow;
+    if (!t) return;
+
+    const isConcludedToday = appState.selectedDay === 'today' && t.is_concluded === true;
 
     // Verdict word — tier-specific size/weight/glow handled in styles.css via
-    // .verdict-{go|light|heavy}. We keep the class list minimal here so the
-    // CSS owns the visual hierarchy.
+    // .verdict-{go|light|heavy}. The concluded-today view replaces the loud
+    // verdict with a calm "COMPLETE" word and zero glow.
     const verdictEl = $('#verdict');
-    verdictEl.textContent = vLabel;
-    verdictEl.className = `verdict-word verdict-${vClass} anim-scale-in`;
-
-    // Glow
     const glow = $('#hero-glow');
-    glow.className = `hero-glow glow-${vClass}`;
+
+    if (isConcludedToday) {
+      verdictEl.textContent = 'COMPLETE';
+      verdictEl.className = 'verdict-word verdict-complete anim-scale-in';
+      glow.className = 'hero-glow';
+      glow.style.opacity = '0';
+    } else {
+      const vClass = verdictClass(t.verdict);
+      const vLabel = verdictLabel(t.verdict);
+      verdictEl.textContent = vLabel;
+      verdictEl.className = `verdict-word verdict-${vClass} anim-scale-in`;
+      glow.className = `hero-glow glow-${vClass}`;
+      glow.style.opacity = '';
+    }
 
     // Date — parse "YYYY-MM-DD" as noon LOCAL so the calendar day never drifts
     // backward in negative-offset zones. Format with the full standard pattern,
@@ -204,14 +300,35 @@
     reasonEl.classList.add('anim-fade-up');
     reasonEl.style.setProperty('animation-delay', '60ms');
 
-    // Subtitle pills (first rain · best window · wind · confidence)
-    renderHeroPills(t);
+    // Subtitle pills (first rain · best window · wind · confidence) — skipped
+    // entirely on a concluded day (everything is null and there's nothing to
+    // suggest about a day that's already over).
+    if (isConcludedToday) {
+      const host = $('#hero-pills');
+      if (host) host.innerHTML = '';
+    } else {
+      renderHeroPills(t);
+    }
 
-    // Agreement chip
-    renderAgreementChip(t);
+    // Agreement chip — hide on a concluded day; show the "see tomorrow" CTA
+    // instead so the user has an obvious next action.
+    const agreementChip = $('#agreement-chip');
+    if (isConcludedToday) {
+      agreementChip.className = 'inline-flex';
+      agreementChip.innerHTML = `
+        <button type="button" class="day-cta" data-action="see-tomorrow">
+          <span>See Tomorrow's forecast</span>
+          <span class="day-cta-arrow" aria-hidden="true">&rarr;</span>
+        </button>
+      `;
+      const btn = agreementChip.querySelector('[data-action="see-tomorrow"]');
+      if (btn) btn.addEventListener('click', () => setSelectedDay('tomorrow'));
+    } else {
+      renderAgreementChip(t);
+    }
 
-    // Quick stats
-    renderHeroStats(t);
+    // Quick stats — concluded today hides rain (it's null) and keeps temp/wind.
+    renderHeroStats(t, { isConcludedToday });
   }
 
   function renderAgreementChip(t) {
@@ -304,15 +421,35 @@
   // Stats row — peak rain, wind peak, high, low. Wind replaced "mean rain"
   // because mean is buried in the chart already and wind directly affects
   // tennis playability.
-  function renderHeroStats(t) {
+  //
+  // When the selected day is the concluded "today" view, the rain stats are
+  // null on the backend payload, so we drop the rain tile and keep only the
+  // stats we still have meaningful values for (wind/high/low).
+  function renderHeroStats(t, opts = {}) {
     const grid = $('#hero-stats');
-    const stats = [
-      { label: 'Peak rain', value: `${Math.round(t.rain_probability_max ?? 0)}%`, tint: rainTint(t.rain_probability_max) },
-      { label: 'Wind (peak)', value: t.wind_max_mph != null ? `${Math.round(t.wind_max_mph)} mph` : '—', tint: null },
-      { label: 'High', value: `${Math.round(t.temperature_high_f)}°`, tint: null },
-      { label: 'Low',  value: `${Math.round(t.temperature_low_f)}°`,  tint: null },
-    ];
-    grid.innerHTML = stats.map((s, i) => `
+    const { isConcludedToday = false } = opts;
+
+    const allStats = [];
+    if (!isConcludedToday) {
+      allStats.push({
+        label: 'Peak rain',
+        value: `${Math.round(t.rain_probability_max ?? 0)}%`,
+        tint: rainTint(t.rain_probability_max),
+      });
+    }
+    allStats.push({
+      label: 'Wind (peak)',
+      value: t.wind_max_mph != null ? `${Math.round(t.wind_max_mph)} mph` : '—',
+      tint: null,
+    });
+    if (t.temperature_high_f != null) {
+      allStats.push({ label: 'High', value: `${Math.round(t.temperature_high_f)}°`, tint: null });
+    }
+    if (t.temperature_low_f != null) {
+      allStats.push({ label: 'Low',  value: `${Math.round(t.temperature_low_f)}°`,  tint: null });
+    }
+
+    grid.innerHTML = allStats.map((s, i) => `
       <div class="stat anim-fade-up" style="--i:${i + 3}; animation-delay: ${(i + 3) * 60}ms;">
         <div class="text-[10px] uppercase tracking-[0.18em] text-ink-50 font-semibold mb-1">${s.label}</div>
         <div class="flex items-baseline gap-2">
@@ -339,9 +476,12 @@
     $('#now-temp').textContent = `${Math.round(current.temperature_f)}°`;
     $('#now-rain').textContent = `${Math.round(current.rain_probability_consensus)}%`;
 
+    // Always-real-time: prefer today's model_agreement (the in-flight day);
+    // fall back to tomorrow if the backend hasn't given us a today object.
     const dot = $('#now-agree-dot');
     const text = $('#now-agree-text');
-    if (data.tomorrow.model_agreement === 'AGREE') {
+    const liveDay = data.today || data.tomorrow;
+    if (liveDay && liveDay.model_agreement === 'AGREE') {
       dot.className = 'h-1.5 w-1.5 rounded-full bg-go';
       text.className = 'text-go';
       text.textContent = 'Models agree';
@@ -353,27 +493,43 @@
   }
 
   // ---- Tennis windows ----
+  // Reads tennis_windows from the selected day. When viewing the concluded
+  // today, every window gets the `.is-past` class for a muted look, and the
+  // BEST badge is suppressed (there's no "best" on a day that's over).
+  // Otherwise individual windows can still be flagged `is_past: true` for
+  // windows already elapsed within an in-progress today.
   function renderTennisWindows(data) {
     const grid = $('#windows-grid');
-    const windows = data.tennis_windows || [];
+    const day = currentDay(data) || data.tomorrow || {};
+    const windows = day.tennis_windows || [];
+
+    // Update the section's tiny subheading to match the selected day.
+    const subheading = $('#windows-subheading');
+    if (subheading) {
+      const labelWord = appState.selectedDay === 'today' ? 'Today' : 'Tomorrow';
+      subheading.textContent = `${labelWord} · Eastern Time`;
+    }
+
     if (!windows.length) {
       grid.innerHTML = '<div class="col-span-full text-sm text-ink-50">No tennis windows available.</div>';
       return;
     }
-    const bestLabel = data.tomorrow && data.tomorrow.best_window
-      ? data.tomorrow.best_window.label
-      : null;
+
+    const isConcludedToday = appState.selectedDay === 'today' && day.is_concluded === true;
+    const bestLabel = !isConcludedToday && day.best_window ? day.best_window.label : null;
 
     grid.classList.add('stagger');
     grid.innerHTML = windows.map((w, i) => {
       const vc = verdictClass(w.verdict);
       const vl = verdictLabel(w.verdict);
       const isBest = bestLabel && w.label === bestLabel;
-      const bestBadge = isBest
-        ? `<span class="best-badge" title="Lowest-risk window tomorrow"><svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="3 8.5 6.5 12 13 5"/></svg>Best</span>`
+      const isPast = isConcludedToday || w.is_past === true;
+      const bestBadge = (isBest && !isPast)
+        ? `<span class="best-badge" title="Lowest-risk window"><svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="3 8.5 6.5 12 13 5"/></svg>Best</span>`
         : '';
+      const pastClass = isPast ? ' is-past' : '';
       return `
-        <article class="window-card acc-${vc} anim-fade-up" style="--i:${i}; animation-delay:${i * 60}ms;">
+        <article class="window-card acc-${vc}${pastClass} anim-fade-up" style="--i:${i}; animation-delay:${i * 60}ms;">
           ${bestBadge}
           <div class="flex items-start justify-between gap-2 mb-3">
             <div>
@@ -403,8 +559,16 @@
     const aifs = hours.map(h => h.rain_probability_aifs);
     const cons = hours.map(h => h.rain_probability_consensus);
 
-    // Night bands & disagreement bands (annotations as background)
-    const isNight = data.tomorrow ? buildNightTester(data.tomorrow.sunrise, data.tomorrow.sunset) : () => false;
+    // Night bands key off whatever day object exposes sunrise/sunset. Prefer
+    // tomorrow's (the longer-horizon object), but fall back to today's.
+    const sunDay = data.tomorrow || data.today;
+    const isNight = sunDay ? buildNightTester(sunDay.sunrise, sunDay.sunset) : () => false;
+
+    // The "selected day" highlight band — paints a subtle vertical wash
+    // behind every hour whose calendar date (in TZ) matches the selected
+    // day. Re-built on every chart render so toggling the day re-paints
+    // automatically via renderAll → renderHourlyChart.
+    const selectedDate = currentDay(data)?.date || null;
 
     // Robust half-step width via consecutive pixel positions on the category scale.
     const halfStep = (xScale) => {
@@ -429,6 +593,32 @@
             const x0 = cx - half;
             const x1 = cx + half;
             ctx.fillStyle = 'rgba(11, 29, 58, 0.35)';
+            ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
+          }
+        });
+        ctx.restore();
+      }
+    };
+
+    // Selected-day highlight band — subtle vertical wash behind any hour
+    // whose local calendar date matches the toggle's selected day. Painted
+    // first (beforeDatasetsDraw) so it sits under the bars/lines and night
+    // shading. Re-rendered whenever the chart re-renders, so the band moves
+    // when the user toggles the day.
+    const dayHighlightPlugin = {
+      id: 'dayHighlight',
+      beforeDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !selectedDate) return;
+        const xScale = scales.x;
+        const half = halfStep(xScale);
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+        hours.forEach((h, i) => {
+          if (ymdInTZ(new Date(h.time)) === selectedDate) {
+            const cx = xScale.getPixelForValue(i);
+            const x0 = cx - half;
+            const x1 = cx + half;
             ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
           }
         });
@@ -472,7 +662,7 @@
     // the line lands at the correct fractional offset (sunrise rarely sits on
     // an exact wall-clock hour).
     const sunMarkers = [];
-    if (data.tomorrow) {
+    if (sunDay) {
       const first = new Date(hours[0].time).getTime();
       const last  = new Date(hours[hours.length - 1].time).getTime();
       const within = (ms) => ms >= first && ms <= last;
@@ -487,8 +677,8 @@
         }
         return null;
       };
-      const sr = new Date(data.tomorrow.sunrise).getTime();
-      const ss = new Date(data.tomorrow.sunset).getTime();
+      const sr = new Date(sunDay.sunrise).getTime();
+      const ss = new Date(sunDay.sunset).getTime();
       if (within(sr)) {
         const fi = interpIndex(sr);
         if (fi != null) sunMarkers.push({ fIndex: fi, color: 'rgba(251, 191, 36, 0.30)', label: 'SUNRISE' });
@@ -705,16 +895,22 @@
           },
         },
       },
-      plugins: [nightPlugin, disagreePlugin, sunMarkersPlugin, nowPlugin],
+      plugins: [dayHighlightPlugin, nightPlugin, disagreePlugin, sunMarkersPlugin, nowPlugin],
     });
   }
 
   // ---- Hourly strip ----
+  // Always renders the full 24-hour strip (today+tomorrow). Chips whose
+  // local calendar date matches the selected day get the `.is-active-day`
+  // class for a subtle ring, and each chip carries `data-day="YYYY-MM-DD"`
+  // so the toggle handler can scroll the matching first chip into view.
   function renderHourlyStrip(data) {
     const strip = $('#hourly-strip');
     if (!data.hourly) return;
     const next24 = data.hourly.slice(0, 24);
-    const isNight = data.tomorrow ? buildNightTester(data.tomorrow.sunrise, data.tomorrow.sunset) : () => false;
+    const sunDay = data.tomorrow || data.today;
+    const isNight = sunDay ? buildNightTester(sunDay.sunrise, sunDay.sunset) : () => false;
+    const selectedDate = currentDay(data)?.date || null;
 
     strip.innerHTML = '';
     strip.classList.add('anim-slide-in');
@@ -722,12 +918,16 @@
     next24.forEach((h, i) => {
       const p = Math.round(h.rain_probability_consensus ?? 0);
       const tint = rainTint(p);
-      const night = isNight(new Date(h.time));
+      const hourDate = new Date(h.time);
+      const night = isNight(hourDate);
+      const ymd = ymdInTZ(hourDate);
+      const activeDay = selectedDate && ymd === selectedDate;
       const chip = document.createElement('div');
-      chip.className = `strip-chip ${h.disagreement ? 'is-disagree' : ''} ${night ? 'is-night' : ''}`;
+      chip.className = `strip-chip ${h.disagreement ? 'is-disagree' : ''} ${night ? 'is-night' : ''} ${activeDay ? 'is-active-day' : ''}`;
+      chip.dataset.day = ymd;
       chip.style.animation = `fadeUp 350ms cubic-bezier(0.2,0.7,0.2,1) ${i * 25}ms both`;
       chip.innerHTML = `
-        <div class="chip-hour">${fmtTimeShort(new Date(h.time))}</div>
+        <div class="chip-hour">${fmtTimeShort(hourDate)}</div>
         <div class="chip-icon" aria-hidden="true">${weatherIcon(h.weathercode)}</div>
         <div class="chip-temp tabular-nums">${Math.round(h.temperature_f)}°</div>
         <div class="chip-rain tabular-nums">${p}%</div>
@@ -736,6 +936,24 @@
       `;
       strip.appendChild(chip);
     });
+  }
+
+  // Smoothly scroll the hourly strip so the first chip of the currently-
+  // selected day is visible. No-op when the strip is offscreen so we don't
+  // hijack the viewport for users still reading the hero.
+  function scrollStripToSelectedDay() {
+    const strip = $('#hourly-strip');
+    if (!strip) return;
+    const data = appState.lastData;
+    const selectedDate = currentDay(data)?.date || null;
+    if (!selectedDate) return;
+    // Skip when the strip isn't roughly in view — avoids surprise jumps.
+    const rect = strip.getBoundingClientRect();
+    const offscreen = rect.bottom < 0 || rect.top > window.innerHeight + 200;
+    if (offscreen) return;
+    const target = strip.querySelector(`.strip-chip[data-day="${selectedDate}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
   }
 
   // ---- Footer ----
@@ -759,6 +977,69 @@
     el.classList.add(kind === 'error' ? 'is-error' : 'is-ok', 'is-visible');
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('is-visible'), ms);
+  }
+
+  // ============================================================
+  // Day toggle wiring + state mutator
+  // ============================================================
+  // Central mutator. Updates state, applies a brief crossfade on the hero
+  // card, re-renders everything from the cached payload, then scrolls the
+  // hourly strip to the new day's first chip. No network round-trip.
+  function setSelectedDay(day) {
+    if (day !== 'today' && day !== 'tomorrow') return;
+    if (appState.selectedDay === day) return;
+    appState.selectedDay = day;
+
+    const hero = $('#hero');
+    if (hero) {
+      // Force restart the brief fade-in animation by removing + re-adding.
+      hero.classList.remove('hero-fade');
+      // Force a reflow so the animation restarts cleanly when re-added.
+      void hero.offsetWidth;
+      hero.classList.add('hero-fade');
+    }
+
+    if (appState.lastData) {
+      renderAll(appState.lastData);
+      // After the re-render lands, scroll the strip on the next frame so
+      // the freshly-added chips have layout positions.
+      requestAnimationFrame(scrollStripToSelectedDay);
+    }
+  }
+
+  function wireDayToggle() {
+    const todayBtn = $('#day-toggle-today');
+    const tomBtn   = $('#day-toggle-tomorrow');
+    if (!todayBtn || !tomBtn) return;
+
+    const handleClick = (e) => {
+      const btn = e.currentTarget;
+      const day = btn.dataset.day;
+      setSelectedDay(day);
+    };
+    todayBtn.addEventListener('click', handleClick);
+    tomBtn.addEventListener('click', handleClick);
+
+    // Keyboard tablist pattern: Left/Right toggle, Home/End jump to ends.
+    const handleKey = (e) => {
+      const isLeft  = e.key === 'ArrowLeft';
+      const isRight = e.key === 'ArrowRight';
+      const isHome  = e.key === 'Home';
+      const isEnd   = e.key === 'End';
+      if (!isLeft && !isRight && !isHome && !isEnd) return;
+      e.preventDefault();
+      // Two-tab tablist: arrow keys just flip to the other side.
+      let next;
+      if (isHome) next = 'today';
+      else if (isEnd) next = 'tomorrow';
+      else if (isLeft) next = 'today';
+      else next = 'tomorrow';
+      setSelectedDay(next);
+      const target = next === 'today' ? todayBtn : tomBtn;
+      target.focus();
+    };
+    todayBtn.addEventListener('keydown', handleKey);
+    tomBtn.addEventListener('keydown', handleKey);
   }
 
   // ============================================================
@@ -1087,6 +1368,7 @@
     wireRetry();
     wireRefreshButton();
     wireLegendPopovers();
+    wireDayToggle();
     loadForecast();
     scheduleRefresh();
     initRadar();
