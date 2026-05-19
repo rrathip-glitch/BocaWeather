@@ -251,7 +251,7 @@ Below `#verdict-reason` is `#hero-pills`, a horizontal row of glass micro-pills 
 | ------------ | ---------------------------------- | ------------------------------------ | ---------------------------------- |
 | First rain   | `t.first_rain_hour_local` is non-null | `Rain begins ~3:00 PM`               | `amber`                            |
 | Best window  | `t.best_window` is non-null        | `Best window: Morning · 12%`         | `green` if best.verdict is GO, `amber` if LIGHT_CAUTION, `coral` if HEAVY_CAUTION |
-| Wind         | `t.wind_max_mph` is non-null       | `Wind: 12 mph peak`                  | `slate`                            |
+| Wind         | `t.wind_max_mph` is non-null       | `Wind: 12 mph peak`, or `Wind: 12 · gusts 28 mph` when `t.wind_gust_max_mph - t.wind_max_mph >= 5` | `slate` (`amber` when gust ≥ 25 mph) |
 | Confidence   | always                              | `Forecast confidence: High`          | `green` (HIGH), `amber` (MODERATE), `coral` (LOW) |
 
 Each pill exposes the relevant explanatory string via the native `title` attribute so hover/long-press reveals the context (the confidence pill specifically surfaces `t.confidence_note`).
@@ -269,7 +269,7 @@ The tennis-window card whose `label` matches `currentDay(data).best_window.label
 The four-stat grid (`#hero-stats`) is day-aware via `currentDay(data)` — it pulls from whichever day the toggle has selected. In normal mode it renders, in order:
 
 1. **Peak rain** — `Math.round(t.rain_probability_max)%` with a tiny colored dot (`rainTint`).
-2. **Wind (peak)** — `Math.round(t.wind_max_mph) mph`, or `—` when unavailable. Replaced the prior "Mean rain" stat, because mean is already implied by the consensus bar in the chart, and wind directly affects tennis playability (10+ mph kills the lob).
+2. **Wind (peak)** — `Math.round(t.wind_max_mph) mph`, or `—` when unavailable. Replaced the prior "Mean rain" stat, because mean is already implied by the consensus bar in the chart, and wind directly affects tennis playability (10+ mph kills the lob). When the peak gust is materially higher (`wind_gust_max_mph - wind_max_mph >= 5`), the label switches to "Wind / gust" and the value reads `12 / 28 mph` — a single tile carrying both numbers. Gusts above ~25 mph are the most common reason a clear-sky day is still unplayable.
 3. **High** — `Math.round(t.temperature_high_f)°`.
 4. **Low** — `Math.round(t.temperature_low_f)°`.
 
@@ -473,6 +473,7 @@ The frontend was developed against this representative payload. It matches the c
     "uncertainty_note": null,
     "wind_max_mph": 9,
     "wind_mean_mph": 6,
+    "wind_gust_max_mph": 16,
     "first_rain_time": null,
     "first_rain_hour_local": null,
     "best_window": {
@@ -518,6 +519,7 @@ The frontend was developed against this representative payload. It matches the c
     "uncertainty_note": "HRRR is firing scattered storms; AIFS is keeping it dry.",
     "wind_max_mph": 14,
     "wind_mean_mph": 9,
+    "wind_gust_max_mph": 28,
     "first_rain_time": "2026-05-20T19:00:00Z",
     "first_rain_hour_local": "3:00 PM",
     "best_window": {

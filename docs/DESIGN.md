@@ -137,9 +137,9 @@ The toggle state is per-session frontend state. It survives `/api/forecast` refr
 
 The day-level verdict and per-window grid answer "can I play and roughly when," but several practical tennis questions need more specific data. This pass added six fields to the day object (now present on both `today` and `tomorrow`) that exist purely to make the tennis decision sharper. None of them change the verdict logic in section 3 — they sit alongside it as additional context surfaced in the UI. On `today`, these fields are computed over the **remaining** tennis hours only; on `tomorrow` they cover the full 06:00–21:00 day.
 
-### Wind: `wind_max_mph` and `wind_mean_mph`
+### Wind: `wind_max_mph`, `wind_mean_mph`, and `wind_gust_max_mph`
 
-Both are computed over the tennis hours (06:00–21:00 local) and rounded to the nearest integer. Wind matters for tennis in a way that does not show up anywhere else in a generic forecast:
+All three are computed over the tennis hours (06:00–21:00 local) and rounded to the nearest integer. Wind matters for tennis in a way that does not show up anywhere else in a generic forecast:
 
 - **Below 10 mph** — not noticeable.
 - **10–15 mph** — affects ball flight on lobs and serve tosses; competitive but fine.
@@ -147,6 +147,8 @@ Both are computed over the tennis hours (06:00–21:00 local) and rounded to the
 - **Above 20 mph** — the game stops being fun even with a clear sky. The ball does not go where you hit it; serve tosses are a coin flip.
 
 A 30% rain chance day with 22 mph sustained wind is, in tennis terms, a worse day than a 50% rain chance day with calm air. Surfacing peak and mean lets the user see both the worst hour and the overall character of the day.
+
+**Gust matters as a separate signal.** Sustained wind tells you the steady force the ball is fighting. The gust (`wind_gust_max_mph`) tells you the worst surprise the next 60 seconds will throw at a serve toss. Florida sea-breeze afternoons commonly run 12 mph sustained with 28 mph gusts — the verdict math sees a calm day, the player on court feels a coin-flip ball-toss. The frontend collapses sustained-and-gust into a single tile when the two values agree closely, and splits them ("Wind / gust: 12 / 28 mph") when the gust adds material information.
 
 ### `first_rain_time` and `first_rain_hour_local`
 

@@ -331,25 +331,35 @@
     renderHeroStats(t, { isConcludedToday });
   }
 
+  // ---- Forecast confidence chip ----
+  // Single source of truth for day-level model uncertainty. Derived from
+  // `tomorrow.confidence` (HIGH / MODERATE / LOW), which is computed from the
+  // mean absolute difference between HRRR and AIFS rain probabilities across
+  // the 16 tennis hours. This replaces the older split where a binary
+  // model_agreement chip and a separate confidence pill could contradict
+  // each other ("Both models agree" + "Forecast confidence: Low"). The
+  // per-hour `disagreement` flag is unchanged — that's a different question
+  // (is THIS hour split?) and still drives the chart bands and chip rings.
   function renderAgreementChip(t) {
     const chip = $('#agreement-chip');
+    if (!chip) return;
     chip.classList.add('anim-fade-up');
     chip.style.setProperty('animation-delay', '120ms');
 
-    if (t.model_agreement === 'AGREE') {
-      chip.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-go/10 border border-go/30 text-go anim-fade-up';
-      chip.innerHTML = `
-        <span class="h-1.5 w-1.5 rounded-full bg-go"></span>
-        <span>Both models agree · forecast confident</span>
-      `;
-    } else {
-      const note = t.uncertainty_note ? ` — ${t.uncertainty_note}` : '';
-      chip.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-caution/10 border border-caution/30 text-caution anim-fade-up';
-      chip.innerHTML = `
-        <span class="h-1.5 w-1.5 rounded-full bg-caution"></span>
-        <span>Models disagree · forecast uncertain${note}</span>
-      `;
-    }
+    const level = (t.confidence || '').toUpperCase();
+    const map = {
+      HIGH:     { tone: 'go',     dot: 'bg-go',     text: 'High confidence · models agree closely' },
+      MODERATE: { tone: 'caution',dot: 'bg-caution',text: 'Moderate confidence · models differ on some hours' },
+      LOW:      { tone: 'nogo',   dot: 'bg-nogo',   text: 'Low confidence · models disagree substantially' },
+    };
+    const cfg = map[level] || { tone: 'caution', dot: 'bg-caution', text: 'Confidence unavailable' };
+
+    chip.className = `inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-${cfg.tone}/10 border border-${cfg.tone}/30 text-${cfg.tone} anim-fade-up`;
+    chip.innerHTML = `
+      <span class="h-1.5 w-1.5 rounded-full ${cfg.dot}"></span>
+      <span>${escapeHtml(cfg.text)}</span>
+    `;
+    chip.title = t.confidence_note || '';
   }
 
   // ---- Hero subtitle pills ----
@@ -417,11 +427,9 @@
       });
     }
 
-    pills.push({
-      tone: confTone,
-      title: t.confidence_note || 'How confident the models are in this verdict.',
-      html: `<span class="pill-dot"></span><span>Forecast confidence: <strong>${confLabel}</strong></span>`,
-    });
+    // NOTE: confidence is shown by renderAgreementChip above (single source of
+    // truth). Don't duplicate it here as a pill — that's what caused the
+    // "Forecast confidence: Low" + "Both models agree" contradiction.
 
     host.innerHTML = pills.map((p, i) => `
       <span class="hero-pill anim-fade-up" data-tone="${p.tone}" title="${escapeAttr(p.title)}" style="animation-delay:${80 + i * 60}ms;">
@@ -498,20 +506,21 @@
     $('#now-temp').textContent = `${Math.round(current.temperature_f)}°`;
     $('#now-rain').textContent = `${Math.round(current.rain_probability_consensus)}%`;
 
-    // Always-real-time: prefer today's model_agreement (the in-flight day);
-    // fall back to tomorrow if the backend hasn't given us a today object.
+    // Now-strip dot tracks the same confidence signal as the hero chip so
+    // the page never tells two stories. Prefer today's confidence (the
+    // in-flight day); fall back to tomorrow if today isn't returned.
     const dot = $('#now-agree-dot');
     const text = $('#now-agree-text');
     const liveDay = data.today || data.tomorrow;
-    if (liveDay && liveDay.model_agreement === 'AGREE') {
-      dot.className = 'h-1.5 w-1.5 rounded-full bg-go';
-      text.className = 'text-go';
-      text.textContent = 'Models agree';
-    } else {
-      dot.className = 'h-1.5 w-1.5 rounded-full bg-caution';
-      text.className = 'text-caution';
-      text.textContent = 'Models disagree';
-    }
+    const level = (liveDay && liveDay.confidence || '').toUpperCase();
+    const cfg = {
+      HIGH:     { tone: 'go',      label: 'Models agree' },
+      MODERATE: { tone: 'caution', label: 'Models partly agree' },
+      LOW:      { tone: 'nogo',    label: 'Models disagree' },
+    }[level] || { tone: 'caution', label: 'Loading' };
+    dot.className = `h-1.5 w-1.5 rounded-full bg-${cfg.tone}`;
+    text.className = `text-${cfg.tone}`;
+    text.textContent = cfg.label;
   }
 
   // ---- Tennis windows ----
@@ -1084,6 +1093,10 @@
       btn.classList.add('is-refreshing');
       try {
         await loadForecast({ refresh: true });
+        // Bring the user back to the verdict on a manual refresh — the whole
+        // point of hitting refresh is to re-check the call, so the top of
+        // page (date + verdict + reason) should be in view.
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         showToast('Updated', 'ok');
       } catch (err) {
         showToast('Refresh failed', 'error');
